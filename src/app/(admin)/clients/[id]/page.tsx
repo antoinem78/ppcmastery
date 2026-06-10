@@ -3,8 +3,10 @@
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { getTier, formatEur, upfrontEur } from "@/lib/tiers";
+import { getTier, upfrontTotal } from "@/lib/tiers";
+import { formatMoney } from "@/lib/config";
 import { CopyButton } from "@/components/CopyButton";
+import { StatusBadge } from "@/components/StatusBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -57,9 +59,7 @@ export default async function ClientDetailPage({
     <div className="p-10">
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-semibold text-zinc-900">{client.company_name}</h1>
-        <span className="inline-block rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
-          {client.status}
-        </span>
+        <StatusBadge status={client.status} />
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
@@ -72,10 +72,10 @@ export default async function ClientDetailPage({
             <Row label="Tier" value={tier?.name ?? "—"} />
             {tier && (
               <>
-                <Row label="Monthly" value={`${formatEur(tier.monthlyPriceEur)}/mo`} />
+                <Row label="Monthly" value={`${formatMoney(tier.monthlyPrice)}/mo`} />
                 <Row
                   label="Upfront"
-                  value={`${formatEur(upfrontEur(tier))} (3 months)`}
+                  value={`${formatMoney(upfrontTotal(tier))} (3 months)`}
                 />
               </>
             )}

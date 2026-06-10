@@ -2,7 +2,9 @@
 // onboarding_state.current_step; each step's form advances to the next.
 import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { getTier, formatEur, upfrontEur, type Tier } from "@/lib/tiers";
+import { getTier, upfrontTotal, type Tier } from "@/lib/tiers";
+import { formatMoney } from "@/lib/config";
+import { Wordmark } from "@/components/Wordmark";
 import {
   submitQuestionnaire,
   completeContract,
@@ -45,9 +47,8 @@ export default async function OnboardingWizardPage({
   return (
     <div className="min-h-screen bg-zinc-50">
       <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto max-w-2xl px-6 py-4 text-lg tracking-tight">
-          <span className="font-semibold text-[#0B1F3A]">PPC</span>{" "}
-          <span className="font-light text-zinc-500">mastery</span>
+        <div className="mx-auto max-w-2xl px-6 py-4 text-lg">
+          <Wordmark variant="dark" />
         </div>
       </header>
 
@@ -258,7 +259,7 @@ function QuoteSummary({ tier }: { tier: Tier | null }) {
       <div className="flex items-baseline justify-between">
         <span className="font-semibold text-zinc-900">{tier.name}</span>
         <span className="text-sm text-zinc-500">
-          {formatEur(tier.monthlyPriceEur)}/mo
+          {formatMoney(tier.monthlyPrice)}/mo
         </span>
       </div>
       <p className="mt-1 text-sm text-zinc-500">{tier.blurb}</p>
@@ -272,7 +273,9 @@ function QuoteSummary({ tier }: { tier: Tier | null }) {
       </ul>
       <div className="mt-4 border-t border-zinc-100 pt-3 text-sm">
         <span className="text-zinc-500">Due today (3 months upfront): </span>
-        <span className="font-semibold text-zinc-900">{formatEur(upfrontEur(tier))}</span>
+        <span className="font-semibold text-zinc-900">
+          {formatMoney(upfrontTotal(tier))}
+        </span>
       </div>
     </div>
   );

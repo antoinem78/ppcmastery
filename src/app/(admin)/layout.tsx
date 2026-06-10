@@ -11,6 +11,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth0 } from "@/lib/auth/auth0";
 import { isAgencyAdmin } from "@/lib/auth/roles";
+import { Wordmark } from "@/components/Wordmark";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
@@ -40,9 +41,8 @@ export default async function AdminLayout({
   return (
     <div className="flex min-h-screen">
       <aside className="flex w-60 flex-col bg-[#0B1F3A] text-white">
-        <div className="px-6 py-6 text-xl tracking-tight">
-          <span className="font-semibold">PPC</span>{" "}
-          <span className="font-light text-white/80">mastery</span>
+        <div className="px-6 py-6 text-xl">
+          <Wordmark variant="light" />
         </div>
         <nav className="flex-1 space-y-1 px-3">
           {navItems.map((item) => (
@@ -79,9 +79,8 @@ function NoAccess({ email }: { email: string }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-8">
       <div className="max-w-md rounded-xl border border-zinc-200 bg-white p-8 text-center shadow-sm">
-        <div className="text-lg tracking-tight">
-          <span className="font-semibold text-[#0B1F3A]">PPC</span>{" "}
-          <span className="font-light text-zinc-500">mastery</span>
+        <div className="text-lg">
+          <Wordmark variant="dark" />
         </div>
         <h1 className="mt-4 text-xl font-semibold text-zinc-900">No access</h1>
         <p className="mt-2 text-sm text-zinc-500">

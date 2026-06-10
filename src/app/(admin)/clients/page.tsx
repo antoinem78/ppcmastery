@@ -2,16 +2,9 @@
 import Link from "next/link";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { getTier } from "@/lib/tiers";
+import { StatusBadge } from "@/components/StatusBadge";
 
 export const dynamic = "force-dynamic";
-
-const statusStyles: Record<string, string> = {
-  prospect: "bg-zinc-100 text-zinc-600",
-  onboarding: "bg-amber-100 text-amber-700",
-  active: "bg-emerald-100 text-emerald-700",
-  paused: "bg-orange-100 text-orange-700",
-  churned: "bg-red-100 text-red-700",
-};
 
 export default async function ClientsPage() {
   const supabase = createSupabaseAdminClient();
@@ -72,13 +65,7 @@ export default async function ClientsPage() {
                     {getTier(c.service_tier)?.name ?? "—"}
                   </td>
                   <td className="px-5 py-3">
-                    <span
-                      className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                        statusStyles[c.status] ?? "bg-zinc-100 text-zinc-600"
-                      }`}
-                    >
-                      {c.status}
-                    </span>
+                    <StatusBadge status={c.status} />
                   </td>
                 </tr>
               ))}

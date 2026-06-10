@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { entityConfig } from "@/lib/config";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PPC Mastery — Ops Portal",
-  description: "Internal onboarding & operations portal for PPC Mastery.",
+  title: `${entityConfig.brandName} — Ops Portal`,
+  description: `Internal onboarding & operations portal for ${entityConfig.brandName}.`,
 };
 
 export default function RootLayout({

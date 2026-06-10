@@ -1,7 +1,8 @@
 // Admin form to create a new client + configure their locked-tier quote.
 import Link from "next/link";
 import { createClient } from "../actions";
-import { TIER_LIST, formatEur } from "@/lib/tiers";
+import { TIER_LIST } from "@/lib/tiers";
+import { formatMoney } from "@/lib/config";
 
 export default function NewClientPage() {
   return (
@@ -49,7 +50,7 @@ export default function NewClientPage() {
             </option>
             {TIER_LIST.map((t) => (
               <option key={t.key} value={t.key}>
-                {t.name} — {formatEur(t.monthlyPriceEur)}/mo
+                {t.name} — {formatMoney(t.monthlyPrice)}/mo
               </option>
             ))}
           </select>
