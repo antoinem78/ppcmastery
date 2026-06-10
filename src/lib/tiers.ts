@@ -1,67 +1,83 @@
 // Locked service tiers for the quote. A quote is *configured* (admin picks one of
 // these), not authored — no free-text scope box.
 //
-// ⚠️ PLACEHOLDER names / prices / features. Real tiers are NOT DECIDED yet —
-// replace before go-live. Prices are plain numbers in the deployment's currency
-// (entityConfig.currency: USD for BJ PPC, GBP for WMI). Open question, deferred:
-// whether the two entity deployments share tier definitions or need their own —
-// if per-entity, this file's contents move into per-deployment config.
+// REAL tiers (decided June 2026): paid search only (Google Ads + Microsoft Ads),
+// priced by the client's monthly ad spend band. The low prices are sustainable
+// only in a ZERO-CALLS context — Slack-only communication.
+//
+// Not tiers (sales routing, handled at the discovery call — "speak to an expert
+// for a bespoke quote"):
+//   - ad spend above the top band ($20,000+/month)
+//   - services beyond Google/Microsoft ads
+//   - clients requiring calls (premium package, tailored quote)
+//
+// Prices are plain numbers in the deployment's currency (entityConfig.currency).
+// Whether the WMI clone keeps these numbers in GBP or gets its own is undecided.
 
-export type TierKey = "starter" | "growth" | "scale";
+import { formatMoney } from "@/lib/config";
+
+export type TierKey =
+  | "ps-1k"
+  | "ps-2k"
+  | "ps-3k"
+  | "ps-5k"
+  | "ps-10k"
+  | "ps-15k"
+  | "ps-20k";
 
 export interface Tier {
   key: TierKey;
-  name: string;
-  /** Monthly subscription price in the deployment's currency. PLACEHOLDER. */
+  /** Upper bound of the monthly ad spend band this tier covers. */
+  spendCapMonthly: number;
+  /** Monthly subscription price in the deployment's currency. */
   monthlyPrice: number;
-  blurb: string;
-  features: string[];
 }
 
-export const TIERS: Record<TierKey, Tier> = {
-  starter: {
-    key: "starter",
-    name: "Starter",
-    monthlyPrice: 500,
-    blurb: "For smaller accounts getting started with managed PPC.",
-    features: [
-      "1 ad platform (Google or Microsoft)",
-      "Campaign setup + management",
-      "Monthly performance review",
-    ],
-  },
-  growth: {
-    key: "growth",
-    name: "Growth",
-    monthlyPrice: 1000,
-    blurb: "For scaling accounts across multiple platforms.",
-    features: [
-      "Up to 2 ad platforms",
-      "Campaign setup + ongoing optimisation",
-      "Bi-weekly performance reviews",
-      "Slack support",
-    ],
-  },
-  scale: {
-    key: "scale",
-    name: "Scale",
-    monthlyPrice: 2000,
-    blurb: "For high-spend accounts needing hands-on management.",
-    features: [
-      "Multi-platform (Google, Microsoft, more)",
-      "Full-funnel campaign management",
-      "Weekly performance reviews",
-      "Priority Slack support",
-    ],
-  },
-};
+const BANDS: Array<[TierKey, number, number]> = [
+  ["ps-1k", 1_000, 99],
+  ["ps-2k", 2_000, 129],
+  ["ps-3k", 3_000, 149],
+  ["ps-5k", 5_000, 199],
+  ["ps-10k", 10_000, 399],
+  ["ps-15k", 15_000, 499],
+  ["ps-20k", 20_000, 599],
+];
 
-export const TIER_LIST: Tier[] = [TIERS.starter, TIERS.growth, TIERS.scale];
+export const TIERS: Record<TierKey, Tier> = Object.fromEntries(
+  BANDS.map(([key, spendCapMonthly, monthlyPrice]) => [
+    key,
+    { key, spendCapMonthly, monthlyPrice },
+  ]),
+) as Record<TierKey, Tier>;
+
+export const TIER_LIST: Tier[] = BANDS.map(([key]) => TIERS[key]);
 
 export function getTier(key: string | null | undefined): Tier | null {
   if (key && key in TIERS) return TIERS[key as TierKey];
   return null;
 }
+
+/** Display name, e.g. "Paid Search — ad spend under $2,000/mo". */
+export function tierName(tier: Tier): string {
+  return `Paid Search — ad spend under ${formatMoney(tier.spendCapMonthly)}/mo`;
+}
+
+/** Display name straight from a stored key; null when unknown/unset. */
+export function tierNameFor(key: string | null | undefined): string | null {
+  const tier = getTier(key);
+  return tier ? tierName(tier) : null;
+}
+
+export const TIER_BLURB =
+  "Managed Google Ads & Microsoft Ads — a zero-calls service.";
+
+/** What every tier includes — the service is identical; price scales with spend. */
+export const TIER_FEATURES = [
+  "Google Ads + Microsoft Ads management",
+  "Campaign setup & continuous optimisation",
+  "Weekly written performance reports",
+  "Slack-only communication — no calls",
+];
 
 // Billing model (decided June 2026, supersedes the handover's 3-months-upfront):
 // 1-month rolling subscription, billed in advance on the signup date each month

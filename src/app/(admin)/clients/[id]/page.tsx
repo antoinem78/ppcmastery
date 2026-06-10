@@ -3,7 +3,7 @@
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { getTier } from "@/lib/tiers";
+import { getTier, tierName } from "@/lib/tiers";
 import { formatMoney } from "@/lib/config";
 import { CopyButton } from "@/components/CopyButton";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -69,7 +69,7 @@ export default async function ClientDetailPage({
           <dl className="mt-4 space-y-2 text-sm">
             <Row label="Contact" value={client.contact_name || "—"} />
             <Row label="Email" value={client.contact_email} />
-            <Row label="Tier" value={tier?.name ?? "—"} />
+            <Row label="Tier" value={tier ? tierName(tier) : "—"} />
             {tier && (
               <>
                 <Row label="Monthly" value={`${formatMoney(tier.monthlyPrice)}/mo`} />

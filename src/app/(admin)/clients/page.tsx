@@ -1,7 +1,7 @@
 // Client book — the list of all PPC Mastery clients.
 import Link from "next/link";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { getTier } from "@/lib/tiers";
+import { tierNameFor } from "@/lib/tiers";
 import { StatusBadge } from "@/components/StatusBadge";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +62,7 @@ export default async function ClientsPage() {
                   </td>
                   <td className="px-5 py-3 text-zinc-600">{c.contact_email}</td>
                   <td className="px-5 py-3 text-zinc-600">
-                    {getTier(c.service_tier)?.name ?? "—"}
+                    {tierNameFor(c.service_tier) ?? "—"}
                   </td>
                   <td className="px-5 py-3">
                     <StatusBadge status={c.status} />

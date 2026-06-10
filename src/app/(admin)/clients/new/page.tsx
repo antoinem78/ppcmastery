@@ -1,7 +1,7 @@
 // Admin form to create a new client + configure their locked-tier quote.
 import Link from "next/link";
 import { createClient } from "../actions";
-import { TIER_LIST } from "@/lib/tiers";
+import { TIER_LIST, tierName } from "@/lib/tiers";
 import { formatMoney } from "@/lib/config";
 
 export default function NewClientPage() {
@@ -50,10 +50,15 @@ export default function NewClientPage() {
             </option>
             {TIER_LIST.map((t) => (
               <option key={t.key} value={t.key}>
-                {t.name} — {formatMoney(t.monthlyPrice)}/mo
+                {tierName(t)} — {formatMoney(t.monthlyPrice)}/mo
               </option>
             ))}
           </select>
+          <p className="mt-2 text-xs text-zinc-400">
+            Ad spend above {formatMoney(20000)}/mo, services beyond Google &amp;
+            Microsoft ads, or clients requiring calls → bespoke quote via an
+            expert call, not a fixed tier.
+          </p>
         </Field>
 
         <div className="flex items-center gap-3 pt-2">

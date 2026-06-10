@@ -2,7 +2,13 @@
 // onboarding_state.current_step; each step's form advances to the next.
 import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { getTier, type Tier } from "@/lib/tiers";
+import {
+  getTier,
+  tierName,
+  TIER_BLURB,
+  TIER_FEATURES,
+  type Tier,
+} from "@/lib/tiers";
 import { formatMoney } from "@/lib/config";
 import { Wordmark } from "@/components/Wordmark";
 import {
@@ -257,15 +263,15 @@ function QuoteSummary({ tier }: { tier: Tier | null }) {
   }
   return (
     <div className="mt-6 rounded-lg border border-zinc-200 p-5">
-      <div className="flex items-baseline justify-between">
-        <span className="font-semibold text-zinc-900">{tier.name}</span>
-        <span className="text-sm text-zinc-500">
+      <div className="flex items-baseline justify-between gap-4">
+        <span className="font-semibold text-zinc-900">{tierName(tier)}</span>
+        <span className="shrink-0 text-sm text-zinc-500">
           {formatMoney(tier.monthlyPrice)}/mo
         </span>
       </div>
-      <p className="mt-1 text-sm text-zinc-500">{tier.blurb}</p>
+      <p className="mt-1 text-sm text-zinc-500">{TIER_BLURB}</p>
       <ul className="mt-3 space-y-1 text-sm text-zinc-600">
-        {tier.features.map((f) => (
+        {TIER_FEATURES.map((f) => (
           <li key={f} className="flex items-start gap-2">
             <span className="mt-0.5 text-emerald-500">✓</span>
             {f}
