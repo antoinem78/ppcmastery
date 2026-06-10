@@ -39,6 +39,43 @@ export async function getDocumentStatus(documentId: string): Promise<string> {
 }
 
 /**
+ * Upsert the PandaDoc contact so built-in recipient variables like
+ * [Client.Company] resolve — they fill from the contact record, not from
+ * document tokens. Non-fatal: a failure only leaves that variable blank.
+ */
+async function upsertContact(params: {
+  email: string;
+  firstName: string;
+  lastName: string;
+  company: string;
+}): Promise<void> {
+  try {
+    const create = await fetch(`${API}/contacts`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        email: params.email,
+        first_name: params.firstName,
+        last_name: params.lastName,
+        company: params.company,
+      }),
+    });
+    if (create.ok) return;
+    // Likely already exists → find and update.
+    const list = await api(`/contacts?email=${encodeURIComponent(params.email)}`);
+    const { results } = (await list.json()) as { results: Array<{ id: string }> };
+    if (results[0]) {
+      await api(`/contacts/${results[0].id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ company: params.company }),
+      });
+    }
+  } catch (e) {
+    console.error("PandaDoc contact upsert failed (non-fatal):", e);
+  }
+}
+
+/**
  * Create the contract document from the template, filled from the client
  * record, then send it (silently — no PandaDoc email; we embed instead).
  * Returns the document id.
@@ -51,6 +88,14 @@ export async function createContractDocument(client: {
 }, tier: Tier): Promise<string> {
   const [firstName, ...rest] = (client.contact_name ?? "Client").trim().split(/\s+/);
   const today = new Date().toISOString().slice(0, 10);
+
+  // Built-in [Client.Company] resolves from the contact record — set it first.
+  await upsertContact({
+    email: client.contact_email,
+    firstName,
+    lastName: rest.join(" ") || "-",
+    company: client.company_name,
+  });
 
   const createRes = await api(`/documents`, {
     method: "POST",
