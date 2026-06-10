@@ -49,13 +49,16 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="font-semibold text-zinc-900">Google user data</h2>
+            <h2 className="font-semibold text-zinc-900">Advertising account access</h2>
             <p>
-              If you sign in with Google to connect an advertising account, we
-              access only the identifiers required to link your Google Ads account
-              to our manager account (your accessible account list and customer
-              ID). We do not access your contacts, files, or other Google data,
-              and we never share Google user data with third parties.
+              Where we manage advertising accounts on your behalf, access is
+              granted under your signed service agreement through the advertising
+              platform&rsquo;s own account-linking process (for example, a Google
+              Ads manager-account link that you approve inside Google Ads). You do
+              not sign in to Google through this portal, and we never receive your
+              Google password or account credentials. Advertising data is used
+              solely to deliver the service and is never shared with third
+              parties.
             </p>
           </section>
 
