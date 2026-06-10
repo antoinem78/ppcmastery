@@ -64,5 +64,8 @@ export function getTier(key: string | null | undefined): Tier | null {
 }
 
 // Billing model (decided June 2026, supersedes the handover's 3-months-upfront):
-// 1-month rolling subscription, cancel with 30 days' notice — matching the
-// "No Long-Term Contracts" promise on ppcmastery.ai.
+// 1-month rolling subscription, billed in advance on the signup date each month
+// (sign up June 14 → pay June 14, July 14, …). Cancellation requires 31 days'
+// notice, so the renewal falling inside the notice window still bills — one
+// final payment after cancelling. Stripe: anchor = signup; on cancellation set
+// cancel_at = notice date + 31 days (NOT cancel_at_period_end).

@@ -214,7 +214,8 @@ function PaymentStep({ id, tier }: { id: string; tier: Tier | null }) {
     <>
       <h1 className="text-xl font-semibold text-zinc-900">Payment</h1>
       <p className="mt-1 text-sm text-zinc-500">
-        Monthly rolling subscription — cancel anytime with 30 days&rsquo; notice.
+        Billed today, then on the same date each month — cancel anytime with 31
+        days&rsquo; notice.
       </p>
 
       <QuoteSummary tier={tier} />
@@ -277,7 +278,8 @@ function QuoteSummary({ tier }: { tier: Tier | null }) {
           {formatMoney(tier.monthlyPrice)}
         </span>
         <div className="mt-1 text-xs text-zinc-400">
-          Monthly rolling — cancel anytime with 30 days&rsquo; notice.
+          Then billed on the same date each month. Cancel anytime with 31
+          days&rsquo; notice.
         </div>
       </div>
     </div>

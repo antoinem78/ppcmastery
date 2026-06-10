@@ -73,7 +73,7 @@ export default async function ClientDetailPage({
             {tier && (
               <>
                 <Row label="Monthly" value={`${formatMoney(tier.monthlyPrice)}/mo`} />
-                <Row label="Billing" value="Monthly rolling (30-day notice)" />
+                <Row label="Billing" value="Monthly rolling (31-day notice)" />
               </>
             )}
           </dl>
