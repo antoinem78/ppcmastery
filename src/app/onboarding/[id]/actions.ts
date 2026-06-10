@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity";
 
@@ -87,7 +88,10 @@ export async function completeContract(clientId: string): Promise<void> {
   revalidatePath(`/onboarding/${clientId}`);
 }
 
-export async function completePayment(clientId: string): Promise<void> {
+// Real Stripe payment: send the client to Stripe Checkout for their tier's
+// monthly subscription. Completion is recorded by the webhook (or the
+// checkout-return fallback in the page) — never by this action.
+export async function startCheckout(clientId: string): Promise<void> {
   const state = await getState(clientId);
   if (!state) throw new Error("Onboarding not found.");
   if (state.current_step !== "payment") {
@@ -96,29 +100,23 @@ export async function completePayment(clientId: string): Promise<void> {
   }
 
   const supabase = createSupabaseAdminClient();
-  // Stub: Phase 2 replaces this with the real Stripe payment + webhook.
-  const { error } = await supabase
-    .from("onboarding_state")
-    .update({ payment_status: "paid", current_step: "complete" })
-    .eq("client_id", clientId);
-  if (error) throw new Error(error.message);
+  const { data: client } = await supabase
+    .from("clients")
+    .select("id, contact_email, service_tier")
+    .eq("id", clientId)
+    .single();
+  if (!client) throw new Error("Client not found.");
 
-  // In Phase 2 the Stripe webhook flips the client to "active". For the Phase 1
-  // fake flow we do it here so the lifecycle completes end-to-end.
-  await supabase.from("clients").update({ status: "active" }).eq("id", clientId);
+  const { createCheckoutSessionForClient } = await import(
+    "@/lib/integrations/stripe"
+  );
+  const checkoutUrl = await createCheckoutSessionForClient(client);
 
   await logActivity({
     clientId,
-    eventType: "payment_completed",
+    eventType: "checkout_started",
     actor: "client",
-    payload: { stub: true },
   });
-  await logActivity({
-    clientId,
-    eventType: "client_activated",
-    actor: "system",
-    payload: { stub: true },
-  });
-  revalidatePath(`/onboarding/${clientId}`);
-  revalidatePath(`/clients/${clientId}`);
+
+  redirect(checkoutUrl);
 }

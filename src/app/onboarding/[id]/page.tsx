@@ -14,8 +14,9 @@ import { Wordmark } from "@/components/Wordmark";
 import {
   submitQuestionnaire,
   completeContract,
-  completePayment,
+  startCheckout,
 } from "./actions";
+import { finalizeFromCheckoutSession } from "@/lib/integrations/stripe";
 
 export const dynamic = "force-dynamic";
 
@@ -27,10 +28,13 @@ const WIZARD_STEPS = [
 
 export default async function OnboardingWizardPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ session_id?: string }>;
 }) {
   const { id } = await params;
+  const { session_id: sessionId } = await searchParams;
   const supabase = createSupabaseAdminClient();
 
   const { data: client } = await supabase
@@ -46,7 +50,19 @@ export default async function OnboardingWizardPage({
     .eq("client_id", id)
     .single();
 
-  const step = state?.current_step ?? "questionnaire";
+  let step = state?.current_step ?? "questionnaire";
+
+  // Returning from Stripe Checkout: verify with Stripe (never trust the URL)
+  // and finalize if paid. The webhook does the same thing — both are
+  // idempotent, whichever runs first wins.
+  if (step === "payment" && sessionId) {
+    try {
+      const paid = await finalizeFromCheckoutSession(id, sessionId);
+      if (paid) step = "complete";
+    } catch (e) {
+      console.error("Checkout-return verification failed:", e);
+    }
+  }
   const tier = getTier(client.service_tier);
   const isComplete = step === "complete" || step === "slack" || step === "ad_linking";
 
@@ -226,13 +242,13 @@ function PaymentStep({ id, tier }: { id: string; tier: Tier | null }) {
 
       <QuoteSummary tier={tier} />
 
-      <div className="mt-6 rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-500">
-        💳 Stripe checkout is added in the next phase. For now, clicking continue
-        stands in for a successful payment.
-      </div>
+      <p className="mt-6 text-xs text-zinc-400">
+        You&rsquo;ll be taken to Stripe&rsquo;s secure checkout to enter your
+        payment details.
+      </p>
 
-      <form action={completePayment.bind(null, id)} className="mt-6">
-        <SubmitButton>Pay &amp; finish</SubmitButton>
+      <form action={startCheckout.bind(null, id)} className="mt-4">
+        <SubmitButton>Continue to secure payment</SubmitButton>
       </form>
     </>
   );
