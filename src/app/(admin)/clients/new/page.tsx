@@ -1,7 +1,7 @@
 // Admin form to create a new client + configure their locked-tier quote.
 import Link from "next/link";
 import { createClient } from "../actions";
-import { TIER_LIST, tierName } from "@/lib/tiers";
+import { TIER_LIST, tierName, PLATFORM_OPTIONS } from "@/lib/tiers";
 import { formatMoney } from "@/lib/config";
 
 export default function NewClientPage() {
@@ -64,6 +64,29 @@ export default function NewClientPage() {
             custom plan&rdquo;.
           </p>
         </Field>
+
+        <fieldset>
+          <legend className="mb-1 block text-sm font-medium text-zinc-700">
+            Advertising platforms <span className="text-red-500">*</span>
+          </legend>
+          <div className="flex flex-wrap gap-4">
+            {PLATFORM_OPTIONS.map((p) => (
+              <label key={p} className="flex items-center gap-2 text-sm text-zinc-700">
+                <input
+                  type="checkbox"
+                  name="platforms"
+                  value={p}
+                  defaultChecked={p !== "Meta Ads"}
+                />
+                {p}
+              </label>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-zinc-400">
+            Shown on the quote and contract (e.g. &ldquo;Managed Google Ads &amp;
+            Microsoft Ads&rdquo;).
+          </p>
+        </fieldset>
 
         <Field label="Custom monthly price">
           <input

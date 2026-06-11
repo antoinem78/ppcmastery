@@ -36,6 +36,11 @@ export async function createClient(formData: FormData): Promise<void> {
     throw new Error("The custom plan requires a custom monthly price.");
   }
 
+  const platforms = formData.getAll("platforms").map(String);
+  if (platforms.length === 0) {
+    throw new Error("Select at least one advertising platform.");
+  }
+
   const supabase = createSupabaseAdminClient();
 
   const { data: client, error } = await supabase
@@ -46,6 +51,7 @@ export async function createClient(formData: FormData): Promise<void> {
       contact_email: contactEmail,
       service_tier: serviceTier,
       custom_monthly_price: customPrice,
+      platforms,
       status: "onboarding",
     })
     .select("id")

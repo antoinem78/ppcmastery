@@ -86,8 +86,9 @@ export async function createContractDocument(
     contact_name: string | null;
     contact_email: string;
   },
-  // What the client agreed to: band tier name or "Paid Search — custom plan".
-  quote: { name: string; price: number },
+  // What the client agreed to: band tier name or "Paid Search — custom plan",
+  // plus the platforms wording (e.g. "Google Ads & Microsoft Ads").
+  quote: { name: string; price: number; channels: string },
 ): Promise<string> {
   const [firstName, ...rest] = (client.contact_name ?? "Client").trim().split(/\s+/);
   const today = new Date().toISOString().slice(0, 10);
@@ -119,6 +120,8 @@ export async function createContractDocument(
         { name: "client.contact_email", value: client.contact_email },
         { name: "quote.tier_name", value: quote.name },
         { name: "quote.monthly_price", value: formatMoney(quote.price) },
+        // Fills [quote.channels] if/when added to the template; ignored otherwise.
+        { name: "quote.channels", value: quote.channels },
         { name: "entity.legal_name", value: entityConfig.legalName },
         { name: "agreement.date", value: today },
       ],

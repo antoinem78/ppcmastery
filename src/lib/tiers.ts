@@ -74,16 +74,35 @@ export function tierNameFor(key: string | null | undefined): string | null {
   return tier ? tierName(tier) : null;
 }
 
-export const TIER_BLURB =
-  "Managed Google Ads & Microsoft Ads — a zero-calls service.";
+/** Platforms an admin can select at client creation. */
+export const PLATFORM_OPTIONS = ["Google Ads", "Microsoft Ads", "Meta Ads"] as const;
 
-/** What every tier includes — the service is identical; price scales with spend. */
-export const TIER_FEATURES = [
-  "Google Ads + Microsoft Ads management",
-  "Campaign setup & continuous optimisation",
-  "Weekly written performance reports",
-  "Slack-only communication — no calls",
-];
+export function channelsLabel(platforms: string[] | null | undefined): string {
+  return platforms?.length ? platforms.join(" & ") : "Google Ads & Microsoft Ads";
+}
+
+/**
+ * Plan wording shown on quotes. Custom/premium plans deliberately do NOT
+ * mention zero-calls — calls may be part of what was negotiated.
+ */
+export function planBlurb(
+  platforms: string[] | null | undefined,
+  isCustom: boolean,
+): string {
+  return `Managed ${channelsLabel(platforms)}${isCustom ? "" : " — a zero-calls service"}.`;
+}
+
+export function planFeatures(
+  platforms: string[] | null | undefined,
+  isCustom: boolean,
+): string[] {
+  return [
+    `${channelsLabel(platforms)} management`,
+    "Campaign setup & continuous optimisation",
+    "Weekly written performance reports",
+    isCustom ? "Dedicated Slack channel" : "Slack-only communication — no calls",
+  ];
+}
 
 // Billing model (decided June 2026, supersedes the handover's 3-months-upfront):
 // 1-month rolling subscription, billed in advance on the signup date each month

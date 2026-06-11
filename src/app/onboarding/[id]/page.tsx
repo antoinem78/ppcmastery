@@ -8,8 +8,8 @@ import {
   getTier,
   tierName,
   CUSTOM_PLAN_NAME,
-  TIER_BLURB,
-  TIER_FEATURES,
+  planBlurb,
+  planFeatures,
 } from "@/lib/tiers";
 import { formatMoney } from "@/lib/config";
 import { Wordmark } from "@/components/Wordmark";
@@ -55,7 +55,7 @@ export default async function OnboardingWizardPage({
   const { data: client } = await supabase
     .from("clients")
     .select(
-      "id, company_name, contact_name, contact_email, service_tier, custom_monthly_price",
+      "id, company_name, contact_name, contact_email, service_tier, custom_monthly_price, platforms",
     )
     .eq("id", id)
     .single();
@@ -133,11 +133,18 @@ export default async function OnboardingWizardPage({
               planName={planName}
               price={price}
               isCustom={isCustom}
+              platforms={client.platforms}
               signingUrl={signingUrl}
             />
           )}
           {displayStep === "payment" && (
-            <PaymentStep id={id} planName={planName} price={price} isCustom={isCustom} />
+            <PaymentStep
+              id={id}
+              planName={planName}
+              price={price}
+              isCustom={isCustom}
+              platforms={client.platforms}
+            />
           )}
           {displayStep === "slack" && (
             <SlackStep id={id} defaultEmail={client.contact_email} />
@@ -241,12 +248,14 @@ function ContractStep({
   planName,
   price,
   isCustom,
+  platforms,
   signingUrl,
 }: {
   id: string;
   planName: string | null;
   price: number;
   isCustom: boolean;
+  platforms: string[] | null;
   signingUrl: string | null;
 }) {
   if (signingUrl) {
@@ -277,7 +286,12 @@ function ContractStep({
         Here&rsquo;s the plan we agreed — generate your agreement to sign online.
       </p>
 
-      <QuoteSummary planName={planName} price={price} isCustom={isCustom} />
+      <QuoteSummary
+        planName={planName}
+        price={price}
+        isCustom={isCustom}
+        platforms={platforms}
+      />
 
       <form action={generateContract.bind(null, id)} className="mt-6">
         <SubmitButton>Generate &amp; sign your agreement</SubmitButton>
@@ -295,11 +309,13 @@ function PaymentStep({
   planName,
   price,
   isCustom,
+  platforms,
 }: {
   id: string;
   planName: string | null;
   price: number;
   isCustom: boolean;
+  platforms: string[] | null;
 }) {
   return (
     <>
@@ -309,7 +325,12 @@ function PaymentStep({
         days&rsquo; notice.
       </p>
 
-      <QuoteSummary planName={planName} price={price} isCustom={isCustom} />
+      <QuoteSummary
+        planName={planName}
+        price={price}
+        isCustom={isCustom}
+        platforms={platforms}
+      />
 
       <p className="mt-6 text-xs text-zinc-400">
         You&rsquo;ll be taken to Stripe&rsquo;s secure checkout to enter your
@@ -383,7 +404,7 @@ function QuestionnaireStep({ id }: { id: string }) {
             Which channels do you want to advertise on?
           </legend>
           <div className="flex flex-wrap gap-4">
-            {["Google Ads", "Microsoft Ads"].map((p) => (
+            {["Google Ads", "Microsoft Ads", "Meta Ads"].map((p) => (
               <label key={p} className="flex items-center gap-2 text-sm text-zinc-700">
                 <input type="checkbox" name="channels" value={p} />
                 {p}
@@ -466,10 +487,12 @@ function QuoteSummary({
   planName,
   price,
   isCustom,
+  platforms,
 }: {
   planName: string | null;
   price: number;
   isCustom: boolean;
+  platforms: string[] | null;
 }) {
   if (!planName || !price) {
     return (
@@ -493,9 +516,9 @@ function QuoteSummary({
           {formatMoney(price)}/mo
         </span>
       </div>
-      <p className="mt-1 text-sm text-zinc-500">{TIER_BLURB}</p>
+      <p className="mt-1 text-sm text-zinc-500">{planBlurb(platforms, isCustom)}</p>
       <ul className="mt-3 space-y-1 text-sm text-zinc-600">
-        {TIER_FEATURES.map((f) => (
+        {planFeatures(platforms, isCustom).map((f) => (
           <li key={f} className="flex items-start gap-2">
             <span className="mt-0.5 text-emerald-500">✓</span>
             {f}

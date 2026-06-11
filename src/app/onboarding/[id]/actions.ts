@@ -86,7 +86,7 @@ export async function generateContract(clientId: string): Promise<void> {
     const { data: client } = await supabase
       .from("clients")
       .select(
-        "id, company_name, contact_name, contact_email, service_tier, custom_monthly_price",
+        "id, company_name, contact_name, contact_email, service_tier, custom_monthly_price, platforms",
       )
       .eq("id", clientId)
       .single();
@@ -94,7 +94,9 @@ export async function generateContract(clientId: string): Promise<void> {
 
     // Custom price (or custom plan) → client-facing name is the neutral
     // "custom plan"; otherwise the band tier name + band price.
-    const { getTier, tierName, CUSTOM_PLAN_NAME } = await import("@/lib/tiers");
+    const { getTier, tierName, CUSTOM_PLAN_NAME, channelsLabel } = await import(
+      "@/lib/tiers"
+    );
     const tier = getTier(client.service_tier);
     const price = client.custom_monthly_price ?? tier?.monthlyPrice;
     const name = client.custom_monthly_price
@@ -106,7 +108,11 @@ export async function generateContract(clientId: string): Promise<void> {
       throw new Error("Client has no valid plan/price configured.");
     }
 
-    const documentId = await createContractDocument(client, { name, price });
+    const documentId = await createContractDocument(client, {
+      name,
+      price,
+      channels: channelsLabel(client.platforms),
+    });
     const { error } = await supabase
       .from("onboarding_state")
       .update({ pandadoc_document_id: documentId })
