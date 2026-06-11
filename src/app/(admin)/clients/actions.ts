@@ -16,9 +16,19 @@ export async function createClient(formData: FormData): Promise<void> {
   const contactName = String(formData.get("contact_name") ?? "").trim();
   const contactEmail = String(formData.get("contact_email") ?? "").trim();
   const serviceTier = String(formData.get("service_tier") ?? "").trim();
+  const customPriceRaw = String(formData.get("custom_monthly_price") ?? "").trim();
 
   if (!companyName || !contactEmail || !getTier(serviceTier)) {
     throw new Error("Company name, contact email, and a valid tier are required.");
+  }
+
+  // Optional negotiated price overriding the tier band (whole units).
+  let customPrice: number | null = null;
+  if (customPriceRaw) {
+    customPrice = Math.round(Number(customPriceRaw));
+    if (!Number.isFinite(customPrice) || customPrice <= 0) {
+      throw new Error("Custom monthly price must be a positive number.");
+    }
   }
 
   const supabase = createSupabaseAdminClient();
@@ -30,6 +40,7 @@ export async function createClient(formData: FormData): Promise<void> {
       contact_name: contactName || null,
       contact_email: contactEmail,
       service_tier: serviceTier,
+      custom_monthly_price: customPrice,
       status: "onboarding",
     })
     .select("id")
@@ -39,9 +50,11 @@ export async function createClient(formData: FormData): Promise<void> {
     throw new Error(error?.message ?? "Failed to create client.");
   }
 
+  // Wizard starts at the contract step (a details-confirmation gate shows
+  // first); the onboarding questionnaire comes after payment + Slack.
   const { error: stateError } = await supabase
     .from("onboarding_state")
-    .insert({ client_id: client.id });
+    .insert({ client_id: client.id, current_step: "contract" });
   if (stateError) {
     throw new Error(stateError.message);
   }
@@ -50,7 +63,11 @@ export async function createClient(formData: FormData): Promise<void> {
     clientId: client.id,
     eventType: "client_created",
     actor: `admin:${adminEmail}`,
-    payload: { company_name: companyName, service_tier: serviceTier },
+    payload: {
+      company_name: companyName,
+      service_tier: serviceTier,
+      custom_monthly_price: customPrice,
+    },
   });
 
   revalidatePath("/clients");

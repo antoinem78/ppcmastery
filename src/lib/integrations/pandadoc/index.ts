@@ -85,6 +85,7 @@ export async function createContractDocument(client: {
   company_name: string;
   contact_name: string | null;
   contact_email: string;
+  custom_monthly_price?: number | null;
 }, tier: Tier): Promise<string> {
   const [firstName, ...rest] = (client.contact_name ?? "Client").trim().split(/\s+/);
   const today = new Date().toISOString().slice(0, 10);
@@ -115,7 +116,10 @@ export async function createContractDocument(client: {
         { name: "client.contact_name", value: client.contact_name ?? "" },
         { name: "client.contact_email", value: client.contact_email },
         { name: "quote.tier_name", value: tierName(tier) },
-        { name: "quote.monthly_price", value: formatMoney(tier.monthlyPrice) },
+        {
+          name: "quote.monthly_price",
+          value: formatMoney(client.custom_monthly_price ?? tier.monthlyPrice),
+        },
         { name: "entity.legal_name", value: entityConfig.legalName },
         { name: "agreement.date", value: today },
       ],

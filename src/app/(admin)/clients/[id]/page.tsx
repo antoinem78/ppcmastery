@@ -10,12 +10,38 @@ import { StatusBadge } from "@/components/StatusBadge";
 
 export const dynamic = "force-dynamic";
 
-const STEP_ORDER = ["questionnaire", "contract", "payment", "complete"] as const;
+const STEP_ORDER = [
+  "details",
+  "contract",
+  "payment",
+  "slack",
+  "questionnaire",
+  "complete",
+] as const;
 const STEP_LABELS: Record<string, string> = {
-  questionnaire: "Questionnaire",
+  details: "Details confirmed",
   contract: "Contract",
   payment: "Payment",
+  slack: "Slack",
+  questionnaire: "Questionnaire",
   complete: "Complete",
+};
+
+const QUESTION_LABELS: Record<string, string> = {
+  monthly_budget: "Monthly budget",
+  cpl_cpa_target: "CPL/CPA target",
+  roas_target: "ROAS target",
+  channels: "Channels",
+  target_locations: "Target locations",
+  business_focus: "Business focus",
+  priority_keywords: "Priority keywords",
+  avoid_keywords: "Avoid keywords/areas",
+  usps: "USPs",
+  valuable_actions: "Most valuable actions",
+  ad_schedule: "Ad schedule",
+  demographics: "Demographics",
+  competitors: "Top competitors",
+  drive_link: "Creatives drive link",
 };
 
 export default async function ClientDetailPage({
@@ -52,8 +78,20 @@ export default async function ClientDetailPage({
   const proto = host.startsWith("localhost") ? "http" : "https";
   const onboardingUrl = `${proto}://${host}/onboarding/${id}`;
 
-  const currentStep = state?.current_step ?? "questionnaire";
+  // "details" is a gate inside the contract step, not its own enum value.
+  const currentStep =
+    state?.current_step === "contract" && !state?.details_confirmed
+      ? "details"
+      : (state?.current_step ?? "details");
   const currentIdx = STEP_ORDER.indexOf(currentStep as (typeof STEP_ORDER)[number]);
+  const price = client.custom_monthly_price ?? tier?.monthlyPrice ?? null;
+  const questionnaire =
+    (state?.questionnaire_data as Record<string, unknown> | null) ?? null;
+  const hasAnswers =
+    questionnaire &&
+    Object.values(questionnaire).some((v) =>
+      Array.isArray(v) ? v.length > 0 : !!v,
+    );
 
   return (
     <div className="p-10">
@@ -70,11 +108,17 @@ export default async function ClientDetailPage({
             <Row label="Contact" value={client.contact_name || "—"} />
             <Row label="Email" value={client.contact_email} />
             <Row label="Tier" value={tier ? tierName(tier) : "—"} />
-            {tier && (
+            {price !== null && (
               <>
-                <Row label="Monthly" value={`${formatMoney(tier.monthlyPrice)}/mo`} />
+                <Row
+                  label="Monthly"
+                  value={`${formatMoney(price)}/mo${client.custom_monthly_price ? " (custom)" : ""}`}
+                />
                 <Row label="Billing" value="Monthly rolling (31-day notice)" />
               </>
+            )}
+            {state?.slack_invite_email && (
+              <Row label="Slack invite" value={state.slack_invite_email} />
             )}
           </dl>
         </section>
@@ -122,6 +166,43 @@ export default async function ClientDetailPage({
           </div>
         </section>
       </div>
+
+      {/* Questionnaire answers */}
+      {hasAnswers && (
+        <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <h2 className="text-sm font-semibold text-zinc-900">
+            Questionnaire answers
+          </h2>
+          <dl className="mt-4 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
+            {Object.entries(QUESTION_LABELS).map(([key, label]) => {
+              const raw = questionnaire?.[key];
+              const value = Array.isArray(raw) ? raw.join(", ") : String(raw ?? "");
+              if (!value) return null;
+              return (
+                <div key={key}>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+                    {label}
+                  </dt>
+                  <dd className="mt-0.5 whitespace-pre-wrap text-zinc-800">
+                    {key === "drive_link" ? (
+                      <a
+                        href={value}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#0B1F3A] underline"
+                      >
+                        {value}
+                      </a>
+                    ) : (
+                      value
+                    )}
+                  </dd>
+                </div>
+              );
+            })}
+          </dl>
+        </section>
+      )}
 
       {/* Activity log */}
       <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">

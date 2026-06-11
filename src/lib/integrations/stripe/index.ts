@@ -40,22 +40,38 @@ async function getPriceIdForTier(tier: Tier): Promise<string> {
   return price.id;
 }
 
-/** Create a Stripe Checkout session for the client's configured tier. */
+/**
+ * Create a Stripe Checkout session for the client's configured tier — or, for
+ * negotiated deals, their custom monthly price (ad-hoc price, same product
+ * naming, still a monthly subscription anchored at signup).
+ */
 export async function createCheckoutSessionForClient(client: {
   id: string;
   contact_email: string;
   service_tier: string | null;
+  custom_monthly_price?: number | null;
 }): Promise<string> {
   const tier = getTier(client.service_tier);
   if (!tier) throw new Error("Client has no valid service tier configured.");
 
   const stripe = getStripe();
-  const priceId = await getPriceIdForTier(tier);
   const base = process.env.APP_BASE_URL ?? "http://localhost:3000";
+
+  const lineItem = client.custom_monthly_price
+    ? {
+        price_data: {
+          currency: entityConfig.currency.toLowerCase(),
+          unit_amount: client.custom_monthly_price * 100,
+          recurring: { interval: "month" as const },
+          product_data: { name: `${tierName(tier)} — custom pricing` },
+        },
+        quantity: 1,
+      }
+    : { price: await getPriceIdForTier(tier), quantity: 1 };
 
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: [lineItem],
     customer_email: client.contact_email,
     client_reference_id: client.id,
     metadata: { client_id: client.id },
@@ -89,9 +105,10 @@ export async function finalizePaidClient(params: {
   if (!state) throw new Error(`No onboarding state for client ${params.clientId}.`);
   if (state.payment_status === "paid") return { alreadyDone: true };
 
+  // Payment no longer ends the wizard — the Slack + questionnaire steps follow.
   const { error: stateErr } = await supabase
     .from("onboarding_state")
-    .update({ payment_status: "paid", current_step: "complete" })
+    .update({ payment_status: "paid", current_step: "slack" })
     .eq("client_id", params.clientId);
   if (stateErr) throw new Error(stateErr.message);
 

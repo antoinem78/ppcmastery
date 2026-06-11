@@ -1,21 +1,19 @@
-// Public, link-driven onboarding wizard. The step shown is driven by
-// onboarding_state.current_step; each step's form advances to the next.
+// Public, link-driven onboarding wizard. Prospects arrive having verbally
+// agreed a quote, so the order optimises for time-to-signature:
+//   confirm details -> contract -> payment -> Slack invite -> questionnaire.
+// The step shown is driven by onboarding_state; each action advances it.
 import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import {
-  getTier,
-  tierName,
-  TIER_BLURB,
-  TIER_FEATURES,
-  type Tier,
-} from "@/lib/tiers";
+import { getTier, tierName, TIER_BLURB, TIER_FEATURES, type Tier } from "@/lib/tiers";
 import { formatMoney } from "@/lib/config";
 import { Wordmark } from "@/components/Wordmark";
 import {
-  submitQuestionnaire,
+  confirmDetails,
   generateContract,
   confirmContractSigned,
   startCheckout,
+  submitSlackEmail,
+  submitQuestionnaire,
 } from "./actions";
 import { finalizeFromCheckoutSession } from "@/lib/integrations/stripe";
 import {
@@ -30,9 +28,11 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 const WIZARD_STEPS = [
-  { key: "questionnaire", label: "Questionnaire" },
+  { key: "details", label: "Details" },
   { key: "contract", label: "Contract" },
   { key: "payment", label: "Payment" },
+  { key: "slack", label: "Slack" },
+  { key: "questionnaire", label: "Questionnaire" },
 ] as const;
 
 export default async function OnboardingWizardPage({
@@ -48,24 +48,26 @@ export default async function OnboardingWizardPage({
 
   const { data: client } = await supabase
     .from("clients")
-    .select("id, company_name, contact_email, service_tier")
+    .select(
+      "id, company_name, contact_name, contact_email, service_tier, custom_monthly_price",
+    )
     .eq("id", id)
     .single();
   if (!client) notFound();
 
   const { data: state } = await supabase
     .from("onboarding_state")
-    .select("current_step, pandadoc_document_id")
+    .select("current_step, details_confirmed, pandadoc_document_id")
     .eq("client_id", id)
     .single();
 
-  let step = state?.current_step ?? "questionnaire";
+  let step: string = state?.current_step ?? "contract";
 
   // Contract step with a generated document: check its real status with
   // PandaDoc. Completed → advance (fallback for the webhook); otherwise mint a
   // fresh embedded-signing session for the iframe.
   let signingUrl: string | null = null;
-  if (step === "contract" && state?.pandadoc_document_id) {
+  if (step === "contract" && state?.details_confirmed && state.pandadoc_document_id) {
     try {
       const status = await getDocumentStatus(state.pandadoc_document_id);
       if (status === "document.completed") {
@@ -77,26 +79,26 @@ export default async function OnboardingWizardPage({
           client.contact_email,
         );
       }
-      // document.draft (send failed midway) → signingUrl stays null and the
-      // generate button below acts as the retry.
     } catch (e) {
       console.error("Contract status check failed:", e);
     }
   }
 
   // Returning from Stripe Checkout: verify with Stripe (never trust the URL)
-  // and finalize if paid. The webhook does the same thing — both are
-  // idempotent, whichever runs first wins.
+  // and finalize if paid — idempotent alongside the webhook.
   if (step === "payment" && sessionId) {
     try {
       const paid = await finalizeFromCheckoutSession(id, sessionId);
-      if (paid) step = "complete";
+      if (paid) step = "slack";
     } catch (e) {
       console.error("Checkout-return verification failed:", e);
     }
   }
+
   const tier = getTier(client.service_tier);
-  const isComplete = step === "complete" || step === "slack" || step === "ad_linking";
+  const price = client.custom_monthly_price ?? tier?.monthlyPrice ?? 0;
+  const isComplete = step === "complete" || step === "ad_linking";
+  const displayStep = step === "contract" && !state?.details_confirmed ? "details" : step;
 
   return (
     <div className="min-h-screen bg-zinc-50">
@@ -107,14 +109,20 @@ export default async function OnboardingWizardPage({
       </header>
 
       <main className="mx-auto max-w-2xl px-6 py-10">
-        {!isComplete && <StepIndicator current={step} />}
+        {!isComplete && <StepIndicator current={displayStep} />}
 
         <div className="mt-8 rounded-xl border border-zinc-200 bg-white p-8 shadow-sm">
-          {step === "questionnaire" && <QuestionnaireStep id={id} />}
-          {step === "contract" && (
-            <ContractStep id={id} tier={tier} signingUrl={signingUrl} />
+          {displayStep === "details" && <DetailsStep id={id} client={client} />}
+          {displayStep === "contract" && (
+            <ContractStep id={id} tier={tier} price={price} signingUrl={signingUrl} />
           )}
-          {step === "payment" && <PaymentStep id={id} tier={tier} />}
+          {displayStep === "payment" && (
+            <PaymentStep id={id} tier={tier} price={price} />
+          )}
+          {displayStep === "slack" && (
+            <SlackStep id={id} defaultEmail={client.contact_email} />
+          )}
+          {displayStep === "questionnaire" && <QuestionnaireStep id={id} />}
           {isComplete && <CompleteStep company={client.company_name} />}
         </div>
       </main>
@@ -133,7 +141,7 @@ function StepIndicator({ current }: { current: string }) {
         return (
           <li key={s.key} className="flex flex-1 items-center gap-2">
             <span
-              className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs ${
                 done
                   ? "bg-emerald-500 text-white"
                   : active
@@ -144,7 +152,7 @@ function StepIndicator({ current }: { current: string }) {
               {done ? "✓" : i + 1}
             </span>
             <span
-              className={`text-sm ${active ? "font-medium text-zinc-900" : "text-zinc-500"}`}
+              className={`hidden text-sm sm:inline ${active ? "font-medium text-zinc-900" : "text-zinc-500"}`}
             >
               {s.label}
             </span>
@@ -158,86 +166,51 @@ function StepIndicator({ current }: { current: string }) {
   );
 }
 
-function QuestionnaireStep({ id }: { id: string }) {
+function DetailsStep({
+  id,
+  client,
+}: {
+  id: string;
+  client: {
+    company_name: string;
+    contact_name: string | null;
+    contact_email: string;
+  };
+}) {
   return (
     <>
-      <h1 className="text-xl font-semibold text-zinc-900">
-        Tell us about your business
-      </h1>
+      <h1 className="text-xl font-semibold text-zinc-900">Confirm your details</h1>
       <p className="mt-1 text-sm text-zinc-500">
-        This helps us set up your campaigns. Takes ~2 minutes.
+        These go into your agreement — please check they&rsquo;re exactly right.
       </p>
 
-      <form action={submitQuestionnaire.bind(null, id)} className="mt-6 space-y-5">
-        <Field label="Website" required>
+      <form action={confirmDetails.bind(null, id)} className="mt-6 space-y-5">
+        <Field label="Company legal name" required>
           <input
-            name="website_url"
-            type="text"
-            inputMode="url"
+            name="company_name"
             required
-            placeholder="spacex.com"
+            defaultValue={client.company_name}
             className={inputClass}
           />
         </Field>
-
-        <Field label="Industry" required>
-          <input name="industry" required className={inputClass} />
-        </Field>
-
-        <Field label="Monthly ad budget" required>
-          <select name="monthly_budget" required defaultValue="" className={inputClass}>
-            <option value="" disabled>
-              Select a range…
-            </option>
-            <option>Under €1,000</option>
-            <option>€1,000 – €5,000</option>
-            <option>€5,000 – €20,000</option>
-            <option>€20,000+</option>
-          </select>
-        </Field>
-
-        <Field label="Primary goal" required>
-          <select name="primary_goal" required defaultValue="" className={inputClass}>
-            <option value="" disabled>
-              Select a goal…
-            </option>
-            <option value="leads">Leads</option>
-            <option value="sales">Sales</option>
-            <option value="awareness">Brand awareness</option>
-          </select>
-        </Field>
-
-        <fieldset>
-          <legend className="mb-1 block text-sm font-medium text-zinc-700">
-            Current ad platforms
-          </legend>
-          <div className="flex flex-wrap gap-4">
-            {["Google Ads", "Microsoft Ads", "Meta", "None yet"].map((p) => (
-              <label key={p} className="flex items-center gap-2 text-sm text-zinc-700">
-                <input type="checkbox" name="platforms" value={p} />
-                {p}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
-        <Field label="Target locations">
+        <Field label="Your full name (signer)" required>
           <input
-            name="target_locations"
-            placeholder="e.g. Ireland, UK"
+            name="contact_name"
+            required
+            defaultValue={client.contact_name ?? ""}
             className={inputClass}
           />
         </Field>
-
-        <Field label="Main competitors">
-          <input name="competitors" className={inputClass} />
+        <Field label="Email" required>
+          <input
+            name="contact_email"
+            type="email"
+            required
+            defaultValue={client.contact_email}
+            className={inputClass}
+          />
         </Field>
-
-        <Field label="Anything else?">
-          <textarea name="notes" rows={3} className={inputClass} />
-        </Field>
-
-        <SubmitButton>Continue</SubmitButton>
+        <SubmitButton>Looks right — continue</SubmitButton>
       </form>
     </>
   );
@@ -246,10 +219,12 @@ function QuestionnaireStep({ id }: { id: string }) {
 function ContractStep({
   id,
   tier,
+  price,
   signingUrl,
 }: {
   id: string;
   tier: Tier | null;
+  price: number;
   signingUrl: string | null;
 }) {
   if (signingUrl) {
@@ -277,10 +252,10 @@ function ContractStep({
     <>
       <h1 className="text-xl font-semibold text-zinc-900">Your agreement</h1>
       <p className="mt-1 text-sm text-zinc-500">
-        Review your plan, then generate your agreement to sign online.
+        Here&rsquo;s the plan we agreed — generate your agreement to sign online.
       </p>
 
-      <QuoteSummary tier={tier} />
+      <QuoteSummary tier={tier} price={price} />
 
       <form action={generateContract.bind(null, id)} className="mt-6">
         <SubmitButton>Generate &amp; sign your agreement</SubmitButton>
@@ -293,7 +268,15 @@ function ContractStep({
   );
 }
 
-function PaymentStep({ id, tier }: { id: string; tier: Tier | null }) {
+function PaymentStep({
+  id,
+  tier,
+  price,
+}: {
+  id: string;
+  tier: Tier | null;
+  price: number;
+}) {
   return (
     <>
       <h1 className="text-xl font-semibold text-zinc-900">Payment</h1>
@@ -302,7 +285,7 @@ function PaymentStep({ id, tier }: { id: string; tier: Tier | null }) {
         days&rsquo; notice.
       </p>
 
-      <QuoteSummary tier={tier} />
+      <QuoteSummary tier={tier} price={price} />
 
       <p className="mt-6 text-xs text-zinc-400">
         You&rsquo;ll be taken to Stripe&rsquo;s secure checkout to enter your
@@ -316,6 +299,130 @@ function PaymentStep({ id, tier }: { id: string; tier: Tier | null }) {
   );
 }
 
+function SlackStep({ id, defaultEmail }: { id: string; defaultEmail: string }) {
+  return (
+    <>
+      <h1 className="text-xl font-semibold text-zinc-900">
+        Your Slack channel
+      </h1>
+      <p className="mt-1 text-sm text-zinc-500">
+        All communication runs through your dedicated channel in our Slack — fast,
+        async, in writing. Which email should we invite?
+      </p>
+
+      <form action={submitSlackEmail.bind(null, id)} className="mt-6 space-y-5">
+        <Field label="Email for your Slack invite" required>
+          <input
+            name="slack_email"
+            type="email"
+            required
+            defaultValue={defaultEmail}
+            className={inputClass}
+          />
+        </Field>
+        <SubmitButton>Set up my channel</SubmitButton>
+      </form>
+      <p className="mt-3 text-xs text-zinc-400">
+        You&rsquo;ll receive your invitation by email shortly — joining is free.
+      </p>
+    </>
+  );
+}
+
+function QuestionnaireStep({ id }: { id: string }) {
+  return (
+    <>
+      <h1 className="text-xl font-semibold text-zinc-900">
+        Onboarding questionnaire
+      </h1>
+      <p className="mt-1 text-sm text-zinc-500">
+        Last step — this is what our specialists use to build your campaigns.
+        ~5 minutes, and the more specific the better.
+      </p>
+
+      <form action={submitQuestionnaire.bind(null, id)} className="mt-6 space-y-5">
+        <Field label="What is your monthly budget for your campaigns?" required>
+          <input name="monthly_budget" required className={inputClass} />
+        </Field>
+
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Field label="CPL / CPA target">
+            <input name="cpl_cpa_target" className={inputClass} />
+          </Field>
+          <Field label="ROAS target">
+            <input name="roas_target" className={inputClass} />
+          </Field>
+        </div>
+
+        <fieldset>
+          <legend className="mb-1 block text-sm font-medium text-zinc-700">
+            Which channels do you want to advertise on?
+          </legend>
+          <div className="flex flex-wrap gap-4">
+            {["Google Ads", "Microsoft Ads"].map((p) => (
+              <label key={p} className="flex items-center gap-2 text-sm text-zinc-700">
+                <input type="checkbox" name="channels" value={p} />
+                {p}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <Field label="What locations would you like your ads to be targeting?">
+          <input name="target_locations" className={inputClass} />
+        </Field>
+
+        <Field label="What areas of your business would you like to focus your ads on? (e.g. installation, product sale)">
+          <textarea name="business_focus" rows={2} className={inputClass} />
+        </Field>
+
+        <Field label="Are there any particular keywords you want us to use as a priority?">
+          <textarea name="priority_keywords" rows={2} className={inputClass} />
+        </Field>
+
+        <Field label="Any keywords or areas of your business you'd like us to avoid targeting?">
+          <textarea name="avoid_keywords" rows={2} className={inputClass} />
+        </Field>
+
+        <Field label="Do you have any unique selling points we can use in your ads? (e.g. free delivery, 5★ reviews)">
+          <textarea name="usps" rows={2} className={inputClass} />
+        </Field>
+
+        <Field
+          label="Which actions on your website are the most valuable to you? (e.g. phone calls, purchases, form submissions)"
+          required
+        >
+          <textarea name="valuable_actions" rows={2} required className={inputClass} />
+        </Field>
+
+        <Field label="Do you want your ads running at particular times of day / days of the week?">
+          <input name="ad_schedule" className={inputClass} />
+        </Field>
+
+        <Field label="Is there a certain demographic to focus on? (age, behaviours, interests — be as specific as possible)">
+          <textarea name="demographics" rows={2} className={inputClass} />
+        </Field>
+
+        <Field label="Top 5 competitors">
+          <textarea name="competitors" rows={2} className={inputClass} />
+        </Field>
+
+        <Field label="Images / videos for our creatives — link to a drive (optional)">
+          <input
+            name="drive_link"
+            type="text"
+            inputMode="url"
+            placeholder="drive.google.com/…"
+            className={inputClass}
+          />
+        </Field>
+
+        <SubmitButton>Submit &amp; finish</SubmitButton>
+      </form>
+    </>
+  );
+}
+
 function CompleteStep({ company }: { company: string }) {
   return (
     <div className="text-center">
@@ -324,14 +431,14 @@ function CompleteStep({ company }: { company: string }) {
       </div>
       <h1 className="mt-4 text-xl font-semibold text-zinc-900">You&rsquo;re all set!</h1>
       <p className="mt-2 text-sm text-zinc-500">
-        Thanks, {company}. Your onboarding is complete — our team will be in touch
-        on Slack shortly to get your campaigns live.
+        Thanks, {company}. Your onboarding is complete — keep an eye on your
+        inbox for the Slack invitation; our team takes it from there.
       </p>
     </div>
   );
 }
 
-function QuoteSummary({ tier }: { tier: Tier | null }) {
+function QuoteSummary({ tier, price }: { tier: Tier | null; price: number }) {
   if (!tier) {
     return (
       <div className="mt-6 rounded-md bg-zinc-100 p-4 text-sm text-zinc-500">
@@ -339,12 +446,20 @@ function QuoteSummary({ tier }: { tier: Tier | null }) {
       </div>
     );
   }
+  const isCustom = price !== tier.monthlyPrice;
   return (
     <div className="mt-6 rounded-lg border border-zinc-200 p-5">
       <div className="flex items-baseline justify-between gap-4">
-        <span className="font-semibold text-zinc-900">{tierName(tier)}</span>
+        <span className="font-semibold text-zinc-900">
+          {tierName(tier)}
+          {isCustom && (
+            <span className="ml-2 text-xs font-normal text-zinc-400">
+              (agreed pricing)
+            </span>
+          )}
+        </span>
         <span className="shrink-0 text-sm text-zinc-500">
-          {formatMoney(tier.monthlyPrice)}/mo
+          {formatMoney(price)}/mo
         </span>
       </div>
       <p className="mt-1 text-sm text-zinc-500">{TIER_BLURB}</p>
@@ -358,9 +473,7 @@ function QuoteSummary({ tier }: { tier: Tier | null }) {
       </ul>
       <div className="mt-4 border-t border-zinc-100 pt-3 text-sm">
         <span className="text-zinc-500">Due today (first month): </span>
-        <span className="font-semibold text-zinc-900">
-          {formatMoney(tier.monthlyPrice)}
-        </span>
+        <span className="font-semibold text-zinc-900">{formatMoney(price)}</span>
         <div className="mt-1 text-xs text-zinc-400">
           Then billed on the same date each month. Cancel anytime with 31
           days&rsquo; notice.

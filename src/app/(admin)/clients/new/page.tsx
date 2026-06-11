@@ -57,7 +57,22 @@ export default function NewClientPage() {
           <p className="mt-2 text-xs text-zinc-400">
             Ad spend above {formatMoney(20000)}/mo, services beyond Google &amp;
             Microsoft ads, or clients requiring calls → bespoke quote via an
-            expert call, not a fixed tier.
+            expert call — set the agreed amount below.
+          </p>
+        </Field>
+
+        <Field label="Custom monthly price (optional)">
+          <input
+            name="custom_monthly_price"
+            type="number"
+            min="1"
+            step="1"
+            placeholder="Overrides the tier price — e.g. 750"
+            className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-[#0B1F3A] focus:outline-none"
+          />
+          <p className="mt-1 text-xs text-zinc-400">
+            Use for negotiated/bespoke quotes. Quote, contract, and billing all
+            use this amount instead of the tier band price.
           </p>
         </Field>
 
