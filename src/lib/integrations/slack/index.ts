@@ -83,13 +83,22 @@ export async function tryInviteByEmail(
   email: string,
 ): Promise<"invited" | "manual-invite-needed"> {
   try {
-    const user = await slack<{ ok: boolean; user: { id: string } }>(
-      "users.lookupByEmail",
-      { email },
+    // users.lookupByEmail only accepts the email as a query parameter.
+    const token = process.env.SLACK_BOT_TOKEN;
+    const res = await fetch(
+      `${API}/users.lookupByEmail?email=${encodeURIComponent(email)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
     );
+    const data = (await res.json()) as {
+      ok: boolean;
+      user?: { id: string };
+      error?: string;
+    };
+    if (!data.ok || !data.user) return "manual-invite-needed";
+
     await slack("conversations.invite", {
       channel: channelId,
-      users: user.user.id,
+      users: data.user.id,
     });
     return "invited";
   } catch {
