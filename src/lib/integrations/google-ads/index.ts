@@ -121,15 +121,26 @@ export async function sendLinkInvitation(clientCustomerId: string): Promise<stri
  */
 export async function getLinkStatus(clientCustomerId: string): Promise<string | null> {
   const mcc = requireEnv("GOOGLE_ADS_LOGIN_CUSTOMER_ID");
+  // Note: customer_client_link does not allow ORDER BY — fetch all links for
+  // this account and pick the most relevant by precedence (an old cancelled
+  // link may coexist with a fresh pending/active one).
   const res = await fetch(`${API}/customers/${mcc}/googleAds:search`, {
     method: "POST",
     headers: await adsHeaders(),
     body: JSON.stringify({
-      query: `SELECT customer_client_link.status, customer_client_link.resource_name FROM customer_client_link WHERE customer_client_link.client_customer = 'customers/${clientCustomerId}' ORDER BY customer_client_link.resource_name DESC LIMIT 1`,
+      query: `SELECT customer_client_link.status, customer_client_link.resource_name FROM customer_client_link WHERE customer_client_link.client_customer = 'customers/${clientCustomerId}'`,
     }),
   });
   const body = await res.json();
   if (!res.ok) throw new GoogleAdsError(extractAdsError(body), false);
-  const rows = (body as { results?: Array<{ customerClientLink?: { status?: string } }> }).results;
-  return rows?.[0]?.customerClientLink?.status ?? null;
+  const rows =
+    (body as { results?: Array<{ customerClientLink?: { status?: string } }> })
+      .results ?? [];
+  const statuses = rows
+    .map((r) => r.customerClientLink?.status)
+    .filter((s): s is string => !!s);
+  for (const preferred of ["ACTIVE", "PENDING", "REFUSED", "CANCELED", "CANCELLED", "INACTIVE"]) {
+    if (statuses.includes(preferred)) return preferred;
+  }
+  return null;
 }
