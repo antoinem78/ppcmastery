@@ -7,8 +7,10 @@
 // It prints a Google URL — open it, sign in with the account that admins the
 // PPC Mastery MCC, approve. The script catches the redirect locally and prints
 // the refresh token to paste into .env.local as GOOGLE_ADS_REFRESH_TOKEN.
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+
+const ENV_PATH = new URL("../.env.local", import.meta.url);
 
 const env = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
 const get = (k) => (env.match(new RegExp("^" + k + "=(.*)$", "m")) || [])[1]?.trim();
@@ -53,9 +55,14 @@ const server = createServer(async (req, res) => {
   const data = await tokenRes.json();
   if (data.refresh_token) {
     res.writeHead(200, { "Content-Type": "text/html" });
-    res.end("<h2>Done — go back to the terminal. You can close this tab.</h2>");
-    console.log("\n✅ Refresh token obtained. Paste this line into .env.local:\n");
-    console.log(`GOOGLE_ADS_REFRESH_TOKEN=${data.refresh_token}\n`);
+    res.end("<h2>Done — token saved to .env.local. You can close this tab.</h2>");
+    // Write straight into .env.local — the token never needs to be copied by hand.
+    const current = readFileSync(ENV_PATH, "utf8");
+    writeFileSync(
+      ENV_PATH,
+      current.replace(/^GOOGLE_ADS_REFRESH_TOKEN=.*$/m, `GOOGLE_ADS_REFRESH_TOKEN=${data.refresh_token}`),
+    );
+    console.log("\n✅ Refresh token obtained and written to .env.local (GOOGLE_ADS_REFRESH_TOKEN).");
   } else {
     res.writeHead(500).end("Token exchange failed — see terminal.");
     console.error("Token exchange failed:", JSON.stringify(data, null, 2));

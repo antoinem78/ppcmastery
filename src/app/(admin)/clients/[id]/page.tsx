@@ -7,6 +7,7 @@ import { getTier, tierNameFor } from "@/lib/tiers";
 import { formatMoney } from "@/lib/config";
 import { CopyButton } from "@/components/CopyButton";
 import { StatusBadge } from "@/components/StatusBadge";
+import { approveGoogleAdsLink } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -176,6 +177,60 @@ export default async function ClientDetailPage({
           </div>
         </section>
       </div>
+
+      {/* Google Ads linking */}
+      {state?.google_ads_customer_id && (
+        <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-sm font-semibold text-zinc-900">
+              Google Ads linking
+            </h2>
+            <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600">
+              {state.ad_link_status}
+            </span>
+          </div>
+          <dl className="mt-4 space-y-2 text-sm">
+            <Row label="Customer ID" value={state.google_ads_customer_id} />
+          </dl>
+
+          {state.ad_link_status === "requested" && (
+            <>
+              {(() => {
+                // Surface the most recent send failure (events are newest-first).
+                const lastAttempt = events?.find((e) =>
+                  ["ad_link_invite_failed", "ad_link_invited"].includes(e.event_type),
+                );
+                if (lastAttempt?.event_type !== "ad_link_invite_failed") return null;
+                const msg = (lastAttempt.payload as { message?: string })?.message;
+                return (
+                  <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    Last attempt failed: {msg ?? "unknown error"}
+                  </p>
+                );
+              })()}
+              <form action={approveGoogleAdsLink.bind(null, id)} className="mt-4">
+                <button
+                  type="submit"
+                  className="rounded-md bg-[#0B1F3A] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0B1F3A]/90"
+                >
+                  Approve &amp; send link invitation
+                </button>
+              </form>
+              <p className="mt-2 text-xs text-zinc-400">
+                Sends a management request from the PPC Mastery MCC. The client
+                then approves it inside Google Ads.
+              </p>
+            </>
+          )}
+
+          {state.ad_link_status === "invited" && (
+            <p className="mt-3 text-sm text-zinc-500">
+              Invitation sent — waiting for the client to approve inside Google
+              Ads. (Status refresh arrives in the next build chunk.)
+            </p>
+          )}
+        </section>
+      )}
 
       {/* Questionnaire answers */}
       {hasAnswers && (
