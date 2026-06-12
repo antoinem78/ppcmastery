@@ -30,3 +30,20 @@ protect current scope. Same rule: capture, don't build.
   so Drive is not needed for the questionnaire.
 - **Claude integrated into the PPC Mastery Slack workspace** — AI ops assistant for the
   PPC-masters team. Fits the "AI agents later" operating model; revisit post-MaaS.
+
+---
+
+## SaaS-bound ideas from the June 2026 roadmap session (Antoine + Baptiste)
+
+- **V4: white-label shipped to a third-party agency client** — selling the portal to an
+  external agency is productization (multi-tenancy, support, billing for the tool itself).
+  V2 (WMI UK) and V3 (WMI UAE) are NOT this — they're own-entity clones via env config.
+- **"Growth operating system for agencies"** — portal + CRM bundle rented to agencies:
+  GHL subaccounts under the SingularWeb agency account, they brand it, we host/own the
+  infrastructure. The endgame the MaaS is building toward.
+- **Model-B Google connector at scale** — per-tenant OAuth credential isolation when
+  agencies' clients connect GA4/GTM through their own branded instances.
+
+NOTE (decided June 2026): the **end-client performance dashboard** originally parked in
+this file was explicitly pulled INTO the MaaS by both founders — it leaves this list as a
+validated decision, per the rule.
