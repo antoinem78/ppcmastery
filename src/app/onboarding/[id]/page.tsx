@@ -571,11 +571,25 @@ function AdLinkCard({
       )}
 
       {status === "invited" && (
-        <p className="mt-2 text-sm text-zinc-500">
-          We&rsquo;ve sent the management request to{" "}
-          {customerId ? formatCustomerId(customerId) : "your account"} — please
-          approve it inside Google Ads.
-        </p>
+        <>
+          <p className="mt-2 text-sm text-zinc-500">
+            One last step — we&rsquo;ve sent the management request to{" "}
+            {customerId ? formatCustomerId(customerId) : "your account"}.
+            Approve it in Google Ads and you&rsquo;re done.
+          </p>
+          <a
+            href="https://ads.google.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-4 inline-block rounded-md bg-[#0B1F3A] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#0B1F3A]/90"
+          >
+            Open Google Ads →
+          </a>
+          <p className="mt-3 text-xs text-zinc-400">
+            You&rsquo;ll find the request under Admin → Access and security →
+            Managers.
+          </p>
+        </>
       )}
 
       {status === "approved" && (

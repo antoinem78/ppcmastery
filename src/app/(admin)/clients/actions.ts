@@ -126,6 +126,26 @@ export async function approveGoogleAdsLink(clientId: string): Promise<void> {
         link_resource: resourceName,
       },
     });
+
+    // Ping the client's Slack channel (non-fatal — channel may not exist yet).
+    try {
+      const { data: client } = await supabase
+        .from("clients")
+        .select("company_name")
+        .eq("id", clientId)
+        .single();
+      if (client && process.env.SLACK_BOT_TOKEN) {
+        const { postMessage, channelNameFor } = await import(
+          "@/lib/integrations/slack"
+        );
+        await postMessage(
+          `#${channelNameFor(client.company_name)}`,
+          `📊 We've sent the Google Ads management request for account ${state.google_ads_customer_id} — one last step: approve it in Google Ads (Admin → Access and security → Managers): https://ads.google.com`,
+        );
+      }
+    } catch (slackErr) {
+      console.error("Slack ping on ad-link send failed (non-fatal):", slackErr);
+    }
   } catch (e) {
     const friendly =
       e instanceof GoogleAdsError && e.isInvalidCustomer
@@ -162,18 +182,11 @@ export async function refreshGoogleAdsLinkStatus(clientId: string): Promise<void
     return;
   }
 
-  const { getLinkStatus } = await import("@/lib/integrations/google-ads");
+  const { getLinkStatus, portalStatusFor } = await import(
+    "@/lib/integrations/google-ads"
+  );
   const googleStatus = await getLinkStatus(state.google_ads_customer_id);
-
-  // Google: PENDING | ACTIVE | REFUSED | CANCELED | INACTIVE → our enum.
-  const map: Record<string, "approved" | "refused" | "cancelled"> = {
-    ACTIVE: "approved",
-    REFUSED: "refused",
-    CANCELED: "cancelled",
-    CANCELLED: "cancelled",
-    INACTIVE: "cancelled",
-  };
-  const next = googleStatus ? map[googleStatus] : undefined;
+  const next = portalStatusFor(googleStatus);
 
   if (next) {
     const { error } = await supabase

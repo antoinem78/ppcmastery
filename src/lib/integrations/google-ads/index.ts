@@ -115,6 +115,20 @@ export async function sendLinkInvitation(clientCustomerId: string): Promise<stri
   return result.result.resourceName;
 }
 
+/** Map Google's link status to our ad_link_status enum (null = no change). */
+export function portalStatusFor(
+  googleStatus: string | null,
+): "approved" | "refused" | "cancelled" | null {
+  const map: Record<string, "approved" | "refused" | "cancelled"> = {
+    ACTIVE: "approved",
+    REFUSED: "refused",
+    CANCELED: "cancelled",
+    CANCELLED: "cancelled",
+    INACTIVE: "cancelled",
+  };
+  return googleStatus ? (map[googleStatus] ?? null) : null;
+}
+
 /**
  * Current status of the MCC→client link: PENDING (invited, awaiting client),
  * ACTIVE (accepted), REFUSED, CANCELLED, INACTIVE — or null when no link exists.
