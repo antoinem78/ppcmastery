@@ -124,6 +124,12 @@ export default async function ClientDetailPage({
             {state?.slack_invite_email && (
               <Row label="Slack invite" value={state.slack_invite_email} />
             )}
+            {state?.google_ads_customer_id && (
+              <Row
+                label="Google Ads ID"
+                value={`${state.google_ads_customer_id} (${state.ad_link_status})`}
+              />
+            )}
           </dl>
         </section>
 

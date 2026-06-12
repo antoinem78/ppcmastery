@@ -20,6 +20,7 @@ import {
   startCheckout,
   submitSlackEmail,
   submitQuestionnaire,
+  submitGoogleAdsCustomerId,
 } from "./actions";
 import { finalizeFromCheckoutSession } from "@/lib/integrations/stripe";
 import {
@@ -63,7 +64,9 @@ export default async function OnboardingWizardPage({
 
   const { data: state } = await supabase
     .from("onboarding_state")
-    .select("current_step, details_confirmed, pandadoc_document_id")
+    .select(
+      "current_step, details_confirmed, pandadoc_document_id, ad_link_status, google_ads_customer_id",
+    )
     .eq("client_id", id)
     .single();
 
@@ -150,7 +153,14 @@ export default async function OnboardingWizardPage({
             <SlackStep id={id} defaultEmail={client.contact_email} />
           )}
           {displayStep === "questionnaire" && <QuestionnaireStep id={id} />}
-          {isComplete && <CompleteStep company={client.company_name} />}
+          {isComplete && (
+            <CompleteStep
+              id={id}
+              company={client.company_name}
+              adLinkStatus={state?.ad_link_status ?? "not_started"}
+              customerId={state?.google_ads_customer_id ?? null}
+            />
+          )}
         </div>
       </main>
     </div>
@@ -468,18 +478,137 @@ function QuestionnaireStep({ id }: { id: string }) {
   );
 }
 
-function CompleteStep({ company }: { company: string }) {
+function CompleteStep({
+  id,
+  company,
+  adLinkStatus,
+  customerId,
+}: {
+  id: string;
+  company: string;
+  adLinkStatus: string;
+  customerId: string | null;
+}) {
   return (
-    <div className="text-center">
-      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-2xl">
-        ✓
+    <div>
+      <div className="text-center">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-2xl">
+          ✓
+        </div>
+        <h1 className="mt-4 text-xl font-semibold text-zinc-900">
+          You&rsquo;re all set!
+        </h1>
+        <p className="mt-2 text-sm text-zinc-500">
+          Thanks, {company}. Your onboarding is complete — keep an eye on your
+          inbox for the Slack invitation; our team takes it from there.
+        </p>
       </div>
-      <h1 className="mt-4 text-xl font-semibold text-zinc-900">You&rsquo;re all set!</h1>
-      <p className="mt-2 text-sm text-zinc-500">
-        Thanks, {company}. Your onboarding is complete — keep an eye on your
-        inbox for the Slack invitation; our team takes it from there.
-      </p>
+
+      <AdLinkCard id={id} status={adLinkStatus} customerId={customerId} />
     </div>
+  );
+}
+
+function formatCustomerId(digits: string): string {
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+// Google Ads connection card on the completion page — clients can return to
+// their link any time to do this. The item only completes when the link is
+// ACTIVE (accepted inside Google Ads), never on send.
+function AdLinkCard({
+  id,
+  status,
+  customerId,
+}: {
+  id: string;
+  status: string;
+  customerId: string | null;
+}) {
+  return (
+    <div className="mt-8 rounded-lg border border-zinc-200 p-5 text-left">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-sm font-semibold text-zinc-900">
+          Connect your Google Ads account
+        </h2>
+        <AdLinkBadge status={status} />
+      </div>
+
+      {status === "not_started" && (
+        <>
+          <p className="mt-2 text-sm text-zinc-500">
+            Tell us your Google Ads customer ID and we&rsquo;ll send a management
+            request for your approval — we never need your password.
+          </p>
+          <form
+            action={submitGoogleAdsCustomerId.bind(null, id)}
+            className="mt-4 flex items-start gap-3"
+          >
+            <input
+              name="customer_id"
+              required
+              inputMode="numeric"
+              pattern="[0-9- ]{10,14}"
+              maxLength={14}
+              placeholder="123-456-7890"
+              className="w-44 rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-[#0B1F3A] focus:outline-none"
+            />
+            <SubmitButton>Submit</SubmitButton>
+          </form>
+          <p className="mt-3 text-xs text-zinc-400">
+            Where to find it: sign in at ads.google.com — your customer ID is
+            the 10-digit number in the top-right corner, like 123-456-7890.
+          </p>
+        </>
+      )}
+
+      {status === "requested" && (
+        <p className="mt-2 text-sm text-zinc-500">
+          Thanks — we have your ID
+          {customerId ? ` (${formatCustomerId(customerId)})` : ""}. Our team is
+          reviewing it and will send the linking request shortly.
+        </p>
+      )}
+
+      {status === "invited" && (
+        <p className="mt-2 text-sm text-zinc-500">
+          We&rsquo;ve sent the management request to{" "}
+          {customerId ? formatCustomerId(customerId) : "your account"} — please
+          approve it inside Google Ads.
+        </p>
+      )}
+
+      {status === "approved" && (
+        <p className="mt-2 text-sm text-zinc-500">
+          Connected ✓ — our team manages{" "}
+          {customerId ? formatCustomerId(customerId) : "your account"} from here.
+        </p>
+      )}
+
+      {(status === "refused" || status === "cancelled") && (
+        <p className="mt-2 text-sm text-zinc-500">
+          The linking request was {status === "refused" ? "declined" : "cancelled"}.
+          Message us in your Slack channel and we&rsquo;ll sort it out.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AdLinkBadge({ status }: { status: string }) {
+  const styles: Record<string, [string, string]> = {
+    not_started: ["bg-zinc-100 text-zinc-600", "to do"],
+    requested: ["bg-amber-100 text-amber-700", "under review"],
+    invited: ["bg-blue-100 text-blue-700", "awaiting your approval"],
+    approved: ["bg-emerald-100 text-emerald-700", "connected"],
+    refused: ["bg-red-100 text-red-700", "declined"],
+    cancelled: ["bg-red-100 text-red-700", "cancelled"],
+  };
+  const [cls, label] = styles[status] ?? styles.not_started;
+  return (
+    <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${cls}`}>
+      {label}
+    </span>
   );
 }
 

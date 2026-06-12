@@ -275,6 +275,49 @@ export async function submitSlackEmail(
   revalidatePath(`/onboarding/${clientId}`);
 }
 
+// Post-completion: client submits their Google Ads customer ID. Accepts
+// "123-456-7890" or "1234567890"; normalised to digits, must be exactly 10.
+// No API call here — an admin reviews and approves before anything is sent.
+export async function submitGoogleAdsCustomerId(
+  clientId: string,
+  formData: FormData,
+): Promise<void> {
+  const supabase = createSupabaseAdminClient();
+  const { data: state } = await supabase
+    .from("onboarding_state")
+    .select("ad_link_status")
+    .eq("client_id", clientId)
+    .single();
+  if (!state) throw new Error("Onboarding not found.");
+  if (state.ad_link_status !== "not_started") {
+    revalidatePath(`/onboarding/${clientId}`);
+    return;
+  }
+
+  const raw = String(formData.get("customer_id") ?? "");
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length !== 10 || /^(\d)\1{9}$/.test(digits) || digits === "1234567890") {
+    throw new Error(
+      "That doesn't look like a valid Google Ads customer ID — it's 10 digits, e.g. 123-456-7890.",
+    );
+  }
+
+  const { error } = await supabase
+    .from("onboarding_state")
+    .update({ google_ads_customer_id: digits, ad_link_status: "requested" })
+    .eq("client_id", clientId);
+  if (error) throw new Error(error.message);
+
+  await logActivity({
+    clientId,
+    eventType: "google_ads_id_submitted",
+    actor: "client",
+    payload: { customer_id: digits },
+  });
+  revalidatePath(`/onboarding/${clientId}`);
+  revalidatePath(`/clients/${clientId}`);
+}
+
 // Step 5: the real onboarding questionnaire (post-payment).
 export async function submitQuestionnaire(
   clientId: string,
