@@ -22,7 +22,15 @@ import {
   submitSlackEmail,
   submitQuestionnaire,
   submitGoogleAdsCustomerId,
+  toggleChecklistTask,
+  submitAssetsLink,
 } from "./actions";
+import {
+  ACCESS_TASKS,
+  isAccessTaskKey,
+  getGrantEmails,
+  type AccessTaskKey,
+} from "@/lib/access-tasks";
 import { finalizeFromCheckoutSession } from "@/lib/integrations/stripe";
 import {
   getDocumentStatus,
@@ -54,7 +62,7 @@ export default async function OnboardingPage({
   const { data: client } = await supabase
     .from("clients")
     .select(
-      "id, company_name, contact_name, contact_email, service_tier, custom_monthly_price, platforms",
+      "id, company_name, contact_name, contact_email, service_tier, custom_monthly_price, platforms, access_tasks",
     )
     .eq("id", id)
     .single();
@@ -63,7 +71,7 @@ export default async function OnboardingPage({
   const { data: state } = await supabase
     .from("onboarding_state")
     .select(
-      "current_step, details_confirmed, pandadoc_document_id, payment_status, ad_link_status, google_ads_customer_id, slack_invite_email, questionnaire_data",
+      "current_step, details_confirmed, pandadoc_document_id, payment_status, ad_link_status, google_ads_customer_id, slack_invite_email, questionnaire_data, checklist, assets_drive_link",
     )
     .eq("client_id", id)
     .single();
@@ -94,6 +102,13 @@ export default async function OnboardingPage({
           }
           adLinkStatus={state?.ad_link_status ?? "not_started"}
           customerId={state?.google_ads_customer_id ?? null}
+          accessTasks={
+            ((client.access_tasks as string[] | null) ?? []).filter(
+              isAccessTaskKey,
+            )
+          }
+          checklist={(state?.checklist as Record<string, boolean> | null) ?? {}}
+          assetsLink={state?.assets_drive_link ?? null}
         />
       </Shell>
     );
@@ -183,6 +198,9 @@ function ClientHome({
   questionnaire,
   adLinkStatus,
   customerId,
+  accessTasks,
+  checklist,
+  assetsLink,
 }: {
   id: string;
   companyName: string;
@@ -191,14 +209,26 @@ function ClientHome({
   questionnaire: Record<string, unknown>;
   adLinkStatus: string;
   customerId: string | null;
+  accessTasks: AccessTaskKey[];
+  checklist: Record<string, boolean>;
+  assetsLink: string | null;
 }) {
   const questionnaireDone = !!questionnaire.monthly_budget;
   const slackDone = !!slackEmail;
   const adDone = adLinkStatus === "approved";
+  const assetsDone = !!assetsLink || checklist.assets === true;
+  const grantEmails = getGrantEmails();
 
-  const tasks = [questionnaireDone, slackDone, adDone];
-  const doneCount = tasks.filter(Boolean).length;
-  const pct = Math.round((doneCount / tasks.length) * 100);
+  const done = [
+    questionnaireDone,
+    adDone,
+    ...accessTasks.map((k) => checklist[k] === true),
+    assetsDone,
+    slackDone,
+  ];
+  const doneCount = done.filter(Boolean).length;
+  const total = done.length;
+  const pct = Math.round((doneCount / total) * 100);
 
   return (
     <>
@@ -218,17 +248,13 @@ function ClientHome({
           />
         </div>
         <span className="text-sm font-medium text-zinc-600">
-          {doneCount}/{tasks.length} done
+          {doneCount}/{total} done
         </span>
       </div>
 
       <div className="mt-8 space-y-4">
         <TaskCard title="Tell us about your campaigns" done={questionnaireDone}>
           <QuestionnaireFields id={id} defaults={questionnaire} done={questionnaireDone} />
-        </TaskCard>
-
-        <TaskCard title="Join your Slack channel" done={slackDone}>
-          <SlackFields id={id} defaultEmail={slackEmail ?? defaultEmail} done={slackDone} />
         </TaskCard>
 
         <TaskCard
@@ -238,12 +264,122 @@ function ClientHome({
         >
           <AdLinkContent id={id} status={adLinkStatus} customerId={customerId} />
         </TaskCard>
+
+        {accessTasks.map((k) => (
+          <TaskCard key={k} title={ACCESS_TASKS[k].label} done={checklist[k] === true}>
+            <AccessTaskContent
+              id={id}
+              taskKey={k}
+              emails={grantEmails}
+              done={checklist[k] === true}
+            />
+          </TaskCard>
+        ))}
+
+        <TaskCard title="Share your creative assets" done={assetsDone}>
+          <AssetsContent id={id} link={assetsLink} done={assetsDone} />
+        </TaskCard>
+
+        <TaskCard title="Join your Slack channel" done={slackDone}>
+          <SlackFields id={id} defaultEmail={slackEmail ?? defaultEmail} done={slackDone} />
+        </TaskCard>
       </div>
 
-      {doneCount === tasks.length && (
+      {doneCount === total && (
         <p className="mt-8 text-center text-sm text-emerald-600">
           All done — our team takes it from here. Thanks, {companyName}!
         </p>
+      )}
+    </>
+  );
+}
+
+function AccessTaskContent({
+  id,
+  taskKey,
+  emails,
+  done,
+}: {
+  id: string;
+  taskKey: AccessTaskKey;
+  emails: string[];
+  done: boolean;
+}) {
+  const task = ACCESS_TASKS[taskKey];
+  return (
+    <>
+      <ol className="list-decimal space-y-1 pl-5 text-sm text-zinc-600">
+        {task.steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+      <div className="mt-4 rounded-md bg-zinc-50 p-3">
+        <div className="text-xs font-medium text-zinc-500">Grant access to:</div>
+        <ul className="mt-1 space-y-0.5">
+          {emails.length ? (
+            emails.map((e) => (
+              <li key={e} className="font-mono text-sm text-zinc-800">
+                {e}
+              </li>
+            ))
+          ) : (
+            <li className="text-sm text-zinc-400">
+              (ask your PPC Mastery contact for the email)
+            </li>
+          )}
+        </ul>
+      </div>
+      <form action={toggleChecklistTask.bind(null, id, taskKey)} className="mt-4">
+        {done ? (
+          <button
+            type="submit"
+            className="text-sm text-zinc-500 underline hover:text-zinc-800"
+          >
+            Mark as not done
+          </button>
+        ) : (
+          <SubmitButton>I&rsquo;ve granted access</SubmitButton>
+        )}
+      </form>
+    </>
+  );
+}
+
+function AssetsContent({
+  id,
+  link,
+  done,
+}: {
+  id: string;
+  link: string | null;
+  done: boolean;
+}) {
+  return (
+    <>
+      <p className="text-sm text-zinc-500">
+        Share a drive folder with your logos, images and videos so our team can
+        build your creatives. Paste a Google Drive (or similar) link.
+      </p>
+      <form action={submitAssetsLink.bind(null, id)} className="mt-4 flex items-start gap-3">
+        <input
+          name="assets_link"
+          type="text"
+          inputMode="url"
+          defaultValue={link ?? ""}
+          placeholder="drive.google.com/…"
+          className={`${inputClass} max-w-sm`}
+        />
+        <SubmitButton>Save link</SubmitButton>
+      </form>
+      {!done && (
+        <form action={toggleChecklistTask.bind(null, id, "assets")} className="mt-3">
+          <button
+            type="submit"
+            className="text-xs text-zinc-400 underline hover:text-zinc-700"
+          >
+            No assets to share / I&rsquo;ll send them via Slack
+          </button>
+        </form>
       )}
     </>
   );
@@ -698,9 +834,6 @@ function QuestionnaireFields({
         </Field>
         <Field label="Top 5 competitors">
           <textarea name="competitors" rows={2} defaultValue={s("competitors")} className={inputClass} />
-        </Field>
-        <Field label="Images / videos for our creatives — link to a drive (optional)">
-          <input name="drive_link" type="text" inputMode="url" defaultValue={s("drive_link")} placeholder="drive.google.com/…" className={inputClass} />
         </Field>
         <SubmitButton>{done ? "Save changes" : "Submit"}</SubmitButton>
       </form>

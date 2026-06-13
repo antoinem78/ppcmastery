@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { createClient } from "../actions";
 import { TIER_LIST, tierName, PLATFORM_OPTIONS } from "@/lib/tiers";
+import { ACCESS_TASK_LIST } from "@/lib/access-tasks";
 import { formatMoney } from "@/lib/config";
 
 export default function NewClientPage() {
@@ -102,6 +103,23 @@ export default function NewClientPage() {
             Quote, contract, and billing all use this amount when set.
           </p>
         </Field>
+
+        <fieldset>
+          <legend className="mb-1 block text-sm font-medium text-zinc-700">
+            Access grants needed (client checklist)
+          </legend>
+          <div className="flex flex-wrap gap-4">
+            {ACCESS_TASK_LIST.map((t) => (
+              <label key={t.key} className="flex items-center gap-2 text-sm text-zinc-700">
+                <input type="checkbox" name="access_tasks" value={t.key} defaultChecked />
+                {t.short}
+              </label>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-zinc-400">
+            Which access tasks appear on this client&rsquo;s onboarding checklist.
+          </p>
+        </fieldset>
 
         <div className="flex items-center gap-3 pt-2">
           <button

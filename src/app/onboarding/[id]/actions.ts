@@ -330,12 +330,6 @@ export async function submitQuestionnaire(
     return;
   }
 
-  // Accept "drive.google.com/..." and normalise to a full URL.
-  let driveLink = String(formData.get("drive_link") ?? "").trim();
-  if (driveLink && !/^https?:\/\//i.test(driveLink)) {
-    driveLink = "https://" + driveLink;
-  }
-
   const questionnaire = {
     monthly_budget: String(formData.get("monthly_budget") ?? "").trim(),
     cpl_cpa_target: String(formData.get("cpl_cpa_target") ?? "").trim(),
@@ -350,7 +344,6 @@ export async function submitQuestionnaire(
     ad_schedule: String(formData.get("ad_schedule") ?? "").trim(),
     demographics: String(formData.get("demographics") ?? "").trim(),
     competitors: String(formData.get("competitors") ?? "").trim(),
-    drive_link: driveLink,
   };
 
   const supabase = createSupabaseAdminClient();
@@ -363,6 +356,77 @@ export async function submitQuestionnaire(
   await logActivity({
     clientId,
     eventType: "questionnaire_submitted",
+    actor: "client",
+  });
+  revalidatePath(`/onboarding/${clientId}`);
+  revalidatePath(`/clients/${clientId}`);
+}
+
+// Home task: self-attest toggle for an access grant (ga4/gtm/gsc) or the
+// assets "not applicable" skip. Stored in onboarding_state.checklist jsonb.
+export async function toggleChecklistTask(
+  clientId: string,
+  key: string,
+): Promise<void> {
+  if (!["ga4", "gtm", "gsc", "assets"].includes(key)) return;
+  const supabase = createSupabaseAdminClient();
+  const { data: state } = await supabase
+    .from("onboarding_state")
+    .select("payment_status, checklist")
+    .eq("client_id", clientId)
+    .single();
+  if (!state || state.payment_status !== "paid") {
+    revalidatePath(`/onboarding/${clientId}`);
+    return;
+  }
+  const checklist = { ...((state.checklist as Record<string, boolean>) ?? {}) };
+  checklist[key] = !checklist[key];
+
+  const { error } = await supabase
+    .from("onboarding_state")
+    .update({ checklist })
+    .eq("client_id", clientId);
+  if (error) throw new Error(error.message);
+
+  await logActivity({
+    clientId,
+    eventType: checklist[key] ? `task_${key}_done` : `task_${key}_reopened`,
+    actor: "client",
+  });
+  revalidatePath(`/onboarding/${clientId}`);
+  revalidatePath(`/clients/${clientId}`);
+}
+
+// Home task: creative-assets drive link (its own task, out of the questionnaire).
+export async function submitAssetsLink(
+  clientId: string,
+  formData: FormData,
+): Promise<void> {
+  const supabase = createSupabaseAdminClient();
+  const { data: state } = await supabase
+    .from("onboarding_state")
+    .select("payment_status, checklist")
+    .eq("client_id", clientId)
+    .single();
+  if (!state || state.payment_status !== "paid") {
+    revalidatePath(`/onboarding/${clientId}`);
+    return;
+  }
+  let link = String(formData.get("assets_link") ?? "").trim();
+  if (link && !/^https?:\/\//i.test(link)) link = "https://" + link;
+
+  const checklist = { ...((state.checklist as Record<string, boolean>) ?? {}) };
+  checklist.assets = !!link;
+
+  const { error } = await supabase
+    .from("onboarding_state")
+    .update({ assets_drive_link: link || null, checklist })
+    .eq("client_id", clientId);
+  if (error) throw new Error(error.message);
+
+  await logActivity({
+    clientId,
+    eventType: "assets_link_submitted",
     actor: "client",
   });
   revalidatePath(`/onboarding/${clientId}`);

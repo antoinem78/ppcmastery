@@ -41,6 +41,11 @@ export async function createClient(formData: FormData): Promise<void> {
     throw new Error("Select at least one advertising platform.");
   }
 
+  const accessTasks = formData
+    .getAll("access_tasks")
+    .map(String)
+    .filter((k) => ["ga4", "gtm", "gsc"].includes(k));
+
   const supabase = createSupabaseAdminClient();
 
   const { data: client, error } = await supabase
@@ -52,6 +57,7 @@ export async function createClient(formData: FormData): Promise<void> {
       service_tier: serviceTier,
       custom_monthly_price: customPrice,
       platforms,
+      access_tasks: accessTasks,
       status: "onboarding",
     })
     .select("id")
