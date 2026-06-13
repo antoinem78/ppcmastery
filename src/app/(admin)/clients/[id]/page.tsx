@@ -4,29 +4,13 @@ import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { getTier, tierNameFor } from "@/lib/tiers";
+import { ACCESS_TASKS, isAccessTaskKey } from "@/lib/access-tasks";
 import { formatMoney } from "@/lib/config";
 import { CopyButton } from "@/components/CopyButton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { approveGoogleAdsLink, refreshGoogleAdsLinkStatus } from "../actions";
 
 export const dynamic = "force-dynamic";
-
-const STEP_ORDER = [
-  "details",
-  "contract",
-  "payment",
-  "slack",
-  "questionnaire",
-  "complete",
-] as const;
-const STEP_LABELS: Record<string, string> = {
-  details: "Details confirmed",
-  contract: "Contract",
-  payment: "Payment",
-  slack: "Slack",
-  questionnaire: "Questionnaire",
-  complete: "Complete",
-};
 
 const QUESTION_LABELS: Record<string, string> = {
   monthly_budget: "Monthly budget",
@@ -42,7 +26,6 @@ const QUESTION_LABELS: Record<string, string> = {
   ad_schedule: "Ad schedule",
   demographics: "Demographics",
   competitors: "Top competitors",
-  drive_link: "Creatives drive link",
 };
 
 export default async function ClientDetailPage({
@@ -79,12 +62,6 @@ export default async function ClientDetailPage({
   const proto = host.startsWith("localhost") ? "http" : "https";
   const onboardingUrl = `${proto}://${host}/onboarding/${id}`;
 
-  // "details" is a gate inside the contract step, not its own enum value.
-  const currentStep =
-    state?.current_step === "contract" && !state?.details_confirmed
-      ? "details"
-      : (state?.current_step ?? "details");
-  const currentIdx = STEP_ORDER.indexOf(currentStep as (typeof STEP_ORDER)[number]);
   const price = client.custom_monthly_price ?? tier?.monthlyPrice ?? null;
   const questionnaire =
     (state?.questionnaire_data as Record<string, unknown> | null) ?? null;
@@ -93,6 +70,38 @@ export default async function ClientDetailPage({
     Object.values(questionnaire).some((v) =>
       Array.isArray(v) ? v.length > 0 : !!v,
     );
+
+  // Full onboarding journey (pre-payment gates + post-payment checklist), so
+  // the team sees exactly where a client is. Mirrors the client home.
+  const cl = (state?.checklist as Record<string, boolean> | null) ?? {};
+  const accessTasks = ((client.access_tasks as string[] | null) ?? []).filter(
+    isAccessTaskKey,
+  );
+  const journey: { label: string; done: boolean; detail?: string }[] = [
+    { label: "Details confirmed", done: !!state?.details_confirmed },
+    { label: "Contract signed", done: state?.contract_status === "signed" },
+    { label: "Payment", done: state?.payment_status === "paid" },
+    { label: "Questionnaire", done: !!questionnaire?.monthly_budget },
+    {
+      label: "Google Ads link",
+      done: state?.ad_link_status === "approved",
+      detail:
+        state?.ad_link_status && state.ad_link_status !== "not_started"
+          ? state.ad_link_status
+          : undefined,
+    },
+    ...accessTasks.map((k) => ({
+      label: `${ACCESS_TASKS[k].short} access`,
+      done: cl[k] === true,
+    })),
+    {
+      label: "Creative assets",
+      done: !!state?.assets_drive_link || cl.assets === true,
+    },
+    { label: "Slack invite", done: !!state?.slack_invite_email },
+  ];
+  const journeyDone = journey.filter((j) => j.done).length;
+  const journeyPct = Math.round((journeyDone / journey.length) * 100);
 
   return (
     <div className="p-10">
@@ -131,37 +140,46 @@ export default async function ClientDetailPage({
                 value={`${state.google_ads_customer_id} (${state.ad_link_status})`}
               />
             )}
+            {state?.assets_drive_link && (
+              <Row label="Assets link" value={state.assets_drive_link} />
+            )}
           </dl>
         </section>
 
-        {/* Onboarding */}
+        {/* Onboarding checklist */}
         <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <h2 className="text-sm font-semibold text-zinc-900">Onboarding</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-zinc-900">Onboarding</h2>
+            <span className="text-xs font-medium text-zinc-500">
+              {journeyDone}/{journey.length} · {journeyPct}%
+            </span>
+          </div>
+          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200">
+            <div
+              className="h-1.5 rounded-full bg-emerald-500"
+              style={{ width: `${journeyPct}%` }}
+            />
+          </div>
 
-          <ol className="mt-4 space-y-2">
-            {STEP_ORDER.map((step, i) => {
-              const done = i < currentIdx || currentStep === "complete";
-              const active = i === currentIdx && currentStep !== "complete";
-              return (
-                <li key={step} className="flex items-center gap-3 text-sm">
-                  <span
-                    className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${
-                      done
-                        ? "bg-emerald-500 text-white"
-                        : active
-                          ? "bg-[#0B1F3A] text-white"
-                          : "bg-zinc-200 text-zinc-500"
-                    }`}
-                  >
-                    {done ? "✓" : i + 1}
-                  </span>
-                  <span className={active ? "font-medium text-zinc-900" : "text-zinc-600"}>
-                    {STEP_LABELS[step]}
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
+          <ul className="mt-4 space-y-2">
+            {journey.map((j) => (
+              <li key={j.label} className="flex items-center gap-3 text-sm">
+                <span
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] ${
+                    j.done ? "bg-emerald-500 text-white" : "bg-zinc-200 text-zinc-400"
+                  }`}
+                >
+                  {j.done ? "✓" : ""}
+                </span>
+                <span className={j.done ? "text-zinc-600" : "text-zinc-500"}>
+                  {j.label}
+                </span>
+                {j.detail && !j.done && (
+                  <span className="text-xs text-zinc-400">· {j.detail}</span>
+                )}
+              </li>
+            ))}
+          </ul>
 
           <div className="mt-6">
             <div className="mb-1 text-xs font-medium text-zinc-500">Onboarding link</div>
@@ -277,18 +295,7 @@ export default async function ClientDetailPage({
                     {label}
                   </dt>
                   <dd className="mt-0.5 whitespace-pre-wrap text-zinc-800">
-                    {key === "drive_link" ? (
-                      <a
-                        href={value}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[#0B1F3A] underline"
-                      >
-                        {value}
-                      </a>
-                    ) : (
-                      value
-                    )}
+                    {value}
                   </dd>
                 </div>
               );
