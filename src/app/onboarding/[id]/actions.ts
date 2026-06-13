@@ -16,7 +16,7 @@ async function getState(clientId: string) {
   const supabase = createSupabaseAdminClient();
   const { data } = await supabase
     .from("onboarding_state")
-    .select("current_step, details_confirmed")
+    .select("current_step, details_confirmed, payment_status")
     .eq("client_id", clientId)
     .single();
   return data;
@@ -175,15 +175,15 @@ export async function startCheckout(clientId: string): Promise<void> {
   redirect(checkoutUrl);
 }
 
-// Step 4: Slack — record the invite email, provision what automation allows,
-// and always advance (failures become ops tasks, never client-facing walls).
+// Home task (post-payment): Slack — record the invite email, provision what
+// automation allows. Failures become ops tasks, never client-facing walls.
 export async function submitSlackEmail(
   clientId: string,
   formData: FormData,
 ): Promise<void> {
   const state = await getState(clientId);
   if (!state) throw new Error("Onboarding not found.");
-  if (state.current_step !== "slack") {
+  if (state.payment_status !== "paid") {
     revalidatePath(`/onboarding/${clientId}`);
     return;
   }
@@ -262,17 +262,16 @@ export async function submitSlackEmail(
     });
   }
 
+  // Post-payment task: record the email + status, don't touch current_step
+  // (the home is driven by per-task signals, not a linear step machine).
   const { error } = await supabase
     .from("onboarding_state")
-    .update({
-      slack_invite_email: slackEmail,
-      slack_status: slackStatus,
-      current_step: "questionnaire",
-    })
+    .update({ slack_invite_email: slackEmail, slack_status: slackStatus })
     .eq("client_id", clientId);
   if (error) throw new Error(error.message);
 
   revalidatePath(`/onboarding/${clientId}`);
+  revalidatePath(`/clients/${clientId}`);
 }
 
 // Post-completion: client submits their Google Ads customer ID. Accepts
@@ -318,14 +317,15 @@ export async function submitGoogleAdsCustomerId(
   revalidatePath(`/clients/${clientId}`);
 }
 
-// Step 5: the real onboarding questionnaire (post-payment).
+// Home task (post-payment): the onboarding questionnaire. Editable any number
+// of times from the home — overwrites the stored answers.
 export async function submitQuestionnaire(
   clientId: string,
   formData: FormData,
 ): Promise<void> {
   const state = await getState(clientId);
   if (!state) throw new Error("Onboarding not found.");
-  if (state.current_step !== "questionnaire") {
+  if (state.payment_status !== "paid") {
     revalidatePath(`/onboarding/${clientId}`);
     return;
   }
@@ -356,7 +356,7 @@ export async function submitQuestionnaire(
   const supabase = createSupabaseAdminClient();
   const { error } = await supabase
     .from("onboarding_state")
-    .update({ questionnaire_data: questionnaire, current_step: "complete" })
+    .update({ questionnaire_data: questionnaire })
     .eq("client_id", clientId);
   if (error) throw new Error(error.message);
 

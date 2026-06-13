@@ -107,10 +107,11 @@ export async function finalizePaidClient(params: {
   if (!state) throw new Error(`No onboarding state for client ${params.clientId}.`);
   if (state.payment_status === "paid") return { alreadyDone: true };
 
-  // Payment no longer ends the wizard — the Slack + questionnaire steps follow.
+  // Payment is the hinge: past it, the client sees the home/checklist (driven
+  // by payment_status, not current_step). Mark the linear wizard complete.
   const { error: stateErr } = await supabase
     .from("onboarding_state")
-    .update({ payment_status: "paid", current_step: "slack" })
+    .update({ payment_status: "paid", current_step: "complete" })
     .eq("client_id", params.clientId);
   if (stateErr) throw new Error(stateErr.message);
 
