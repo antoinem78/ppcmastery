@@ -7,6 +7,7 @@ import { logActivity } from "@/lib/activity";
 import {
   getLinkStatus,
   portalStatusFor,
+  resolveReportingCustomerId,
 } from "@/lib/integrations/google-ads";
 
 export const maxDuration = 60;
@@ -43,9 +44,20 @@ export async function GET(request: Request) {
       const next = portalStatusFor(googleStatus);
 
       if (next) {
+        const update: Record<string, unknown> = { ad_link_status: next };
+        if (next === "approved") {
+          try {
+            const reporting = await resolveReportingCustomerId(customerId);
+            if (reporting.reportingId) {
+              update.google_ads_reporting_customer_id = reporting.reportingId;
+            }
+          } catch (e) {
+            console.error(`Reporting resolution failed for ${clientId}:`, e);
+          }
+        }
         await supabase
           .from("onboarding_state")
-          .update({ ad_link_status: next })
+          .update(update)
           .eq("client_id", clientId);
         await logActivity({
           clientId,

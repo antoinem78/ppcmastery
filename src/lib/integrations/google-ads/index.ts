@@ -133,6 +133,44 @@ export async function gaqlSearch(
   return (body as { results?: Record<string, unknown>[] }).results ?? [];
 }
 
+/**
+ * Given a linked customer id (which may be a manager/MCC), find the account we
+ * should REPORT on. Managers have no campaigns, so we enumerate the hierarchy
+ * and take the leaf account(s). Returns the single leaf when there's exactly
+ * one (auto-resolves the common case); flags `multi` when a manager has several
+ * leaves (account selection — built on top of this later).
+ */
+export async function resolveReportingCustomerId(linkedCustomerId: string): Promise<{
+  reportingId: string | null;
+  leaves: { id: string; name: string; currency: string }[];
+  multi: boolean;
+}> {
+  const rows = await gaqlSearch(
+    linkedCustomerId,
+    `SELECT customer_client.id, customer_client.descriptive_name,
+            customer_client.currency_code, customer_client.manager
+     FROM customer_client WHERE customer_client.status = 'ENABLED'`,
+  );
+  const leaves = rows
+    .map(
+      (r) =>
+        (r.customerClient ?? {}) as {
+          id?: string | number;
+          descriptiveName?: string;
+          currencyCode?: string;
+          manager?: boolean;
+        },
+    )
+    .filter((c) => c.manager === false && c.id != null)
+    .map((c) => ({
+      id: String(c.id),
+      name: c.descriptiveName ?? "",
+      currency: c.currencyCode ?? "",
+    }));
+  if (leaves.length === 1) return { reportingId: leaves[0].id, leaves, multi: false };
+  return { reportingId: null, leaves, multi: leaves.length > 1 };
+}
+
 /** Map Google's link status to our ad_link_status enum (null = no change). */
 export function portalStatusFor(
   googleStatus: string | null,

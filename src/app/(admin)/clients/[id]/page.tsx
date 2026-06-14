@@ -121,9 +121,11 @@ export default async function ClientDetailPage({
   let dashboard: DashboardPayload | null = null;
   const adApproved =
     state?.ad_link_status === "approved" && state?.google_ads_customer_id;
-  if (adApproved) {
+  const reportingId =
+    state?.google_ads_reporting_customer_id ?? state?.google_ads_customer_id;
+  if (adApproved && reportingId) {
     try {
-      dashboard = await getDashboard(id, state!.google_ads_customer_id!, range);
+      dashboard = await getDashboard(id, reportingId, range);
     } catch (e) {
       console.error("Admin dashboard fetch failed:", e);
     }
@@ -166,6 +168,14 @@ export default async function ClientDetailPage({
                 value={`${state.google_ads_customer_id} (${state.ad_link_status})`}
               />
             )}
+            {state?.google_ads_reporting_customer_id &&
+              state.google_ads_reporting_customer_id !==
+                state.google_ads_customer_id && (
+                <Row
+                  label="Reporting account"
+                  value={`${state.google_ads_reporting_customer_id} (under MCC ${state.google_ads_customer_id})`}
+                />
+              )}
             {state?.assets_drive_link && (
               <Row label="Assets link" value={state.assets_drive_link} />
             )}

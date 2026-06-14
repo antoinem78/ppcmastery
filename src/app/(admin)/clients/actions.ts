@@ -188,16 +188,30 @@ export async function refreshGoogleAdsLinkStatus(clientId: string): Promise<void
     return;
   }
 
-  const { getLinkStatus, portalStatusFor } = await import(
-    "@/lib/integrations/google-ads"
-  );
+  const { getLinkStatus, portalStatusFor, resolveReportingCustomerId } =
+    await import("@/lib/integrations/google-ads");
   const googleStatus = await getLinkStatus(state.google_ads_customer_id);
   const next = portalStatusFor(googleStatus);
 
   if (next) {
+    const update: Record<string, unknown> = { ad_link_status: next };
+    // On activation, resolve the leaf account to report on (the linked id may
+    // be a manager/MCC with no campaigns of its own).
+    let reporting: Awaited<ReturnType<typeof resolveReportingCustomerId>> | null = null;
+    if (next === "approved") {
+      try {
+        reporting = await resolveReportingCustomerId(state.google_ads_customer_id);
+        if (reporting.reportingId) {
+          update.google_ads_reporting_customer_id = reporting.reportingId;
+        }
+      } catch (e) {
+        console.error("Reporting-account resolution failed:", e);
+      }
+    }
+
     const { error } = await supabase
       .from("onboarding_state")
-      .update({ ad_link_status: next })
+      .update(update)
       .eq("client_id", clientId);
     if (error) throw new Error(error.message);
 
@@ -208,6 +222,9 @@ export async function refreshGoogleAdsLinkStatus(clientId: string): Promise<void
       payload: {
         customer_id: state.google_ads_customer_id,
         google_status: googleStatus,
+        reporting_customer_id: reporting?.reportingId ?? null,
+        accounts_found: reporting?.leaves.length ?? null,
+        needs_account_selection: reporting?.multi ?? false,
       },
     });
   } else {
