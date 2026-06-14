@@ -9,8 +9,19 @@ import { formatMoney } from "@/lib/config";
 import { CopyButton } from "@/components/CopyButton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { approveGoogleAdsLink, refreshGoogleAdsLinkStatus } from "../actions";
+import {
+  getDashboard,
+  type DashboardPayload,
+  type ReportWindow,
+} from "@/lib/integrations/google-ads/reporting";
+import { AdsDashboard } from "@/components/AdsDashboard";
 
 export const dynamic = "force-dynamic";
+
+function parseRange(raw: string | undefined): ReportWindow {
+  const n = Number(raw);
+  return n === 7 || n === 90 ? n : 28;
+}
 
 const QUESTION_LABELS: Record<string, string> = {
   monthly_budget: "Monthly budget",
@@ -30,10 +41,13 @@ const QUESTION_LABELS: Record<string, string> = {
 
 export default async function ClientDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ range?: string }>;
 }) {
   const { id } = await params;
+  const range = parseRange((await searchParams).range);
   const supabase = createSupabaseAdminClient();
 
   const { data: client } = await supabase
@@ -102,6 +116,18 @@ export default async function ClientDetailPage({
   ];
   const journeyDone = journey.filter((j) => j.done).length;
   const journeyPct = Math.round((journeyDone / journey.length) * 100);
+
+  // Performance dashboard once the Google Ads link is active (cached, guarded).
+  let dashboard: DashboardPayload | null = null;
+  const adApproved =
+    state?.ad_link_status === "approved" && state?.google_ads_customer_id;
+  if (adApproved) {
+    try {
+      dashboard = await getDashboard(id, state!.google_ads_customer_id!, range);
+    } catch (e) {
+      console.error("Admin dashboard fetch failed:", e);
+    }
+  }
 
   return (
     <div className="p-10">
@@ -276,6 +302,13 @@ export default async function ClientDetailPage({
             </p>
           )}
         </section>
+      )}
+
+      {/* Performance dashboard */}
+      {adApproved && (
+        <div className="mt-6">
+          <AdsDashboard payload={dashboard} basePath={`/clients/${id}`} range={range} />
+        </div>
       )}
 
       {/* Questionnaire answers */}

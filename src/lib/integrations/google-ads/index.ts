@@ -115,6 +115,24 @@ export async function sendLinkInvitation(clientCustomerId: string): Promise<stri
   return result.result.resourceName;
 }
 
+/**
+ * Run a GAQL query against a customer account (authenticated as the MCC via the
+ * login-customer-id header). Returns the raw result rows.
+ */
+export async function gaqlSearch(
+  customerId: string,
+  query: string,
+): Promise<Record<string, unknown>[]> {
+  const res = await fetch(`${API}/customers/${customerId}/googleAds:search`, {
+    method: "POST",
+    headers: await adsHeaders(),
+    body: JSON.stringify({ query }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new GoogleAdsError(extractAdsError(body), false);
+  return (body as { results?: Record<string, unknown>[] }).results ?? [];
+}
+
 /** Map Google's link status to our ad_link_status enum (null = no change). */
 export function portalStatusFor(
   googleStatus: string | null,

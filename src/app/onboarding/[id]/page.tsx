@@ -31,6 +31,13 @@ import {
   getGrantEmails,
   type AccessTaskKey,
 } from "@/lib/access-tasks";
+import { getDashboard, type DashboardPayload, type ReportWindow } from "@/lib/integrations/google-ads/reporting";
+import { AdsDashboard } from "@/components/AdsDashboard";
+
+function parseRange(raw: string | undefined): ReportWindow {
+  const n = Number(raw);
+  return n === 7 || n === 90 ? n : 28;
+}
 import { finalizeFromCheckoutSession } from "@/lib/integrations/stripe";
 import {
   getDocumentStatus,
@@ -53,10 +60,12 @@ export default async function OnboardingPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ session_id?: string }>;
+  searchParams: Promise<{ session_id?: string; range?: string }>;
 }) {
   const { id } = await params;
-  const { session_id: sessionId } = await searchParams;
+  const sp = await searchParams;
+  const sessionId = sp.session_id;
+  const range = parseRange(sp.range);
   const supabase = createSupabaseAdminClient();
 
   const { data: client } = await supabase
@@ -90,6 +99,18 @@ export default async function OnboardingPage({
 
   // ---- Post-payment: the client home / checklist ----
   if (paymentDone) {
+    // Performance dashboard once the Google Ads link is active (cached, guarded
+    // so a reporting hiccup never breaks the home).
+    let dashboard: DashboardPayload | null = null;
+    const adApproved =
+      state?.ad_link_status === "approved" && state?.google_ads_customer_id;
+    if (adApproved) {
+      try {
+        dashboard = await getDashboard(id, state!.google_ads_customer_id!, range);
+      } catch (e) {
+        console.error("Dashboard fetch failed:", e);
+      }
+    }
     return (
       <Shell>
         <ClientHome
@@ -109,6 +130,9 @@ export default async function OnboardingPage({
           }
           checklist={(state?.checklist as Record<string, boolean> | null) ?? {}}
           assetsLink={state?.assets_drive_link ?? null}
+          dashboard={adApproved ? dashboard : undefined}
+          dashboardRange={range}
+          dashboardBasePath={`/onboarding/${id}`}
         />
       </Shell>
     );
@@ -201,6 +225,9 @@ function ClientHome({
   accessTasks,
   checklist,
   assetsLink,
+  dashboard,
+  dashboardRange,
+  dashboardBasePath,
 }: {
   id: string;
   companyName: string;
@@ -212,6 +239,9 @@ function ClientHome({
   accessTasks: AccessTaskKey[];
   checklist: Record<string, boolean>;
   assetsLink: string | null;
+  dashboard?: DashboardPayload | null;
+  dashboardRange: number;
+  dashboardBasePath: string;
 }) {
   const questionnaireDone = !!questionnaire.monthly_budget;
   const slackDone = !!slackEmail;
@@ -289,6 +319,16 @@ function ClientHome({
         <p className="mt-8 text-center text-sm text-emerald-600">
           All done — our team takes it from here. Thanks, {companyName}!
         </p>
+      )}
+
+      {dashboard !== undefined && (
+        <div className="mt-10">
+          <AdsDashboard
+            payload={dashboard}
+            basePath={dashboardBasePath}
+            range={dashboardRange}
+          />
+        </div>
       )}
     </>
   );
