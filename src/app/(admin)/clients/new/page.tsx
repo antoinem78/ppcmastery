@@ -1,11 +1,15 @@
 // Admin form to create a new client + configure their locked-tier quote.
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createClient } from "../actions";
 import { TIER_LIST, tierName, PLATFORM_OPTIONS } from "@/lib/tiers";
 import { ACCESS_TASK_LIST } from "@/lib/access-tasks";
-import { formatMoney } from "@/lib/config";
+import { formatMoney, entityConfig } from "@/lib/config";
 
 export default function NewClientPage() {
+  // Reporting-only deployments have no onboarding funnel — there is no "new
+  // client" flow; managed accounts are added instead.
+  if (entityConfig.reportingOnly) redirect("/clients/reporting");
   return (
     <div className="max-w-xl p-10">
       <h1 className="text-2xl font-semibold text-zinc-900">New client</h1>

@@ -25,6 +25,11 @@ export const entityConfig = {
 
   /** VAT number shown on contract/invoice footers (Phase 2). */
   vatNumber: process.env.VAT_NUMBER ?? "",
+
+  /** Reporting-only deployment (e.g. "MCC Command Center" for BJ PPC's existing
+   *  premium clients): no onboarding funnel — only "Add managed account" +
+   *  dashboards + weekly reports. The full onboarding portal leaves this off. */
+  reportingOnly: process.env.PORTAL_REPORTING_ONLY === "true",
 };
 
 export function formatMoney(amount: number): string {

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { tierNameFor } from "@/lib/tiers";
 import { StatusBadge } from "@/components/StatusBadge";
+import { entityConfig } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -24,12 +25,14 @@ export default async function ClientsPage() {
           >
             Add managed account
           </Link>
-          <Link
-            href="/clients/new"
-            className="rounded-md bg-[#0B1F3A] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0B1F3A]/90"
-          >
-            New client
-          </Link>
+          {!entityConfig.reportingOnly && (
+            <Link
+              href="/clients/new"
+              className="rounded-md bg-[#0B1F3A] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0B1F3A]/90"
+            >
+              New client
+            </Link>
+          )}
         </div>
       </div>
 
@@ -40,8 +43,18 @@ export default async function ClientsPage() {
       {!error && (!clients || clients.length === 0) && (
         <div className="mt-8 rounded-xl border border-dashed border-zinc-300 bg-white p-10 text-center">
           <p className="text-sm text-zinc-500">
-            No clients yet. Click <span className="font-medium">New client</span> to create
-            one and generate an onboarding link.
+            {entityConfig.reportingOnly ? (
+              <>
+                No accounts yet. Click{" "}
+                <span className="font-medium">Add managed account</span> to add one
+                from the MCC and start reporting.
+              </>
+            ) : (
+              <>
+                No clients yet. Click <span className="font-medium">New client</span>{" "}
+                to create one and generate an onboarding link.
+              </>
+            )}
           </p>
         </div>
       )}
