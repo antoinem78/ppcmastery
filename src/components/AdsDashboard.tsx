@@ -64,6 +64,9 @@ export function AdsDashboard({
         </div>
       </div>
 
+      {/* This week — template summary (numbers from the data layer) */}
+      <WeekSummary weekly={payload.weekly} money={(n) => money(n)} dec={dec} />
+
       {/* KPI cards */}
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         <Card label="Spend" value={money(payload.kpis.spend.value)} k={payload.kpis.spend} costMetric />
@@ -120,6 +123,50 @@ export function AdsDashboard({
         />
       </div>
     </section>
+  );
+}
+
+function WeekSummary({
+  weekly,
+  money,
+  dec,
+}: {
+  weekly: DashboardPayload["weekly"];
+  money: (n: number) => string;
+  dec: (n: number, dp?: number) => string;
+}) {
+  const chip = (label: string, value: string, k: Kpi) => (
+    <span className="inline-flex items-baseline gap-1.5">
+      <span className="text-zinc-500">{label}</span>
+      <span className="font-semibold text-zinc-900">{value}</span>
+      {k.deltaPct != null && (
+        <span className={k.deltaPct >= 0 ? "text-emerald-600" : "text-amber-600"}>
+          {k.deltaPct >= 0 ? "▲" : "▼"}
+          {Math.abs(k.deltaPct).toFixed(0)}%
+        </span>
+      )}
+    </span>
+  );
+  return (
+    <div className="mt-5 rounded-lg border border-[#0B1F3A]/15 bg-[#0B1F3A]/[0.03] p-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-[#0B1F3A]">
+        This week · {weekly.start} → {weekly.end}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+        {chip("Spend", money(weekly.spend.value), weekly.spend)}
+        {chip("Conversions", dec(weekly.conversions.value), weekly.conversions)}
+      </div>
+      <div className="mt-2 text-sm text-zinc-600">
+        {weekly.changeLines.length ? (
+          <>
+            <span className="text-zinc-500">Account changes: </span>
+            {weekly.changeLines.join(", ")}.
+          </>
+        ) : (
+          <span className="text-zinc-400">No account changes this week.</span>
+        )}
+      </div>
+    </div>
   );
 }
 

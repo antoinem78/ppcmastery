@@ -18,12 +18,23 @@ export interface Kpi {
   /** % change vs prior period; null when prior is 0 (can't divide). */
   deltaPct: number | null;
 }
+export interface WeeklySummary {
+  start: string;
+  end: string;
+  spend: Kpi;
+  conversions: Kpi;
+  /** Human-readable change lines, e.g. "3 keywords added". */
+  changeLines: string[];
+  changeCount: number;
+}
+
 export interface DashboardPayload {
   currency: string;
   timeZone: string;
   window: number;
   range: { start: string; end: string };
   hasConversionValue: boolean;
+  weekly: WeeklySummary;
   kpis: {
     spend: Kpi; impressions: Kpi; clicks: Kpi; ctr: Kpi; avgCpc: Kpi;
     conversions: Kpi; costPerConv: Kpi; convValue: Kpi; roas: Kpi;
@@ -120,6 +131,75 @@ async function searchImpressionShare(customerId: string, start: string, end: str
   return imprWithShare > 0 ? (weighted / imprWithShare) * 100 : 0;
 }
 
+const RESOURCE_LABEL: Record<string, string> = {
+  CAMPAIGN: "campaign",
+  CAMPAIGN_BUDGET: "budget",
+  CAMPAIGN_CRITERION: "campaign targeting",
+  AD_GROUP: "ad group",
+  AD_GROUP_AD: "ad",
+  AD_GROUP_CRITERION: "keyword",
+  AD_GROUP_BID_MODIFIER: "bid adjustment",
+  AD: "ad",
+  AD_GROUP_ASSET: "asset",
+  CAMPAIGN_ASSET: "asset",
+};
+const OP_VERB: Record<string, string> = {
+  CREATE: "added",
+  UPDATE: "updated",
+  REMOVE: "removed",
+};
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+// Aggregate the account's change history into plain-English lines (template,
+// not LLM): groups by (operation, resource type) and counts.
+async function changeSummary(customerId: string, start: string, end: string) {
+  const rows = await gaqlSearch(
+    customerId,
+    `SELECT change_event.change_resource_type, change_event.resource_change_operation
+     FROM change_event
+     WHERE change_event.change_date_time >= '${start} 00:00:00'
+       AND change_event.change_date_time <= '${end} 23:59:59'
+     ORDER BY change_event.change_date_time DESC LIMIT 1000`,
+  );
+  const counts: Record<string, number> = {};
+  for (const r of rows) {
+    const ce = (r.changeEvent ?? {}) as {
+      changeResourceType?: string;
+      resourceChangeOperation?: string;
+    };
+    const noun = RESOURCE_LABEL[ce.changeResourceType ?? ""] ?? "item";
+    const verb = OP_VERB[ce.resourceChangeOperation ?? ""] ?? "changed";
+    counts[`${verb}|${noun}`] = (counts[`${verb}|${noun}`] ?? 0) + 1;
+  }
+  const lines = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, n]) => {
+      const [verb, noun] = key.split("|");
+      return `${plural(n, noun)} ${verb}`;
+    });
+  return { count: rows.length, lines };
+}
+
+async function buildWeekly(
+  customerId: string,
+  tz: string,
+): Promise<WeeklySummary> {
+  const w = windows(tz, 7);
+  const [cur, prev, changes] = await Promise.all([
+    campaignTotals(customerId, w.start, w.end),
+    campaignTotals(customerId, w.prevStart, w.prevEnd),
+    changeSummary(customerId, w.start, w.end),
+  ]);
+  return {
+    start: w.start,
+    end: w.end,
+    spend: kpi(cur.spend, prev.spend),
+    conversions: kpi(cur.conversions, prev.conversions),
+    changeLines: changes.lines,
+    changeCount: changes.count,
+  };
+}
+
 async function buildDashboard(
   customerId: string,
   windowDays: number,
@@ -137,7 +217,7 @@ async function buildDashboard(
   const timeZone = cust.timeZone ?? "Etc/UTC";
   const w = windows(timeZone, windowDays);
 
-  const [cur, prev, sis, deviceRows, trendRows, termRows] = await Promise.all([
+  const [cur, prev, sis, deviceRows, trendRows, termRows, weekly] = await Promise.all([
     campaignTotals(customerId, w.start, w.end),
     campaignTotals(customerId, w.prevStart, w.prevEnd),
     searchImpressionShare(customerId, w.start, w.end),
@@ -158,6 +238,7 @@ async function buildDashboard(
        FROM search_term_view WHERE segments.date BETWEEN '${w.start}' AND '${w.end}'
        ORDER BY metrics.cost_micros DESC LIMIT 10`,
     ),
+    buildWeekly(customerId, timeZone),
   ]);
 
   const ratio = (a: number, b: number) => (b > 0 ? a / b : 0);
@@ -214,6 +295,7 @@ async function buildDashboard(
     window: windowDays,
     range: { start: w.start, end: w.end },
     hasConversionValue: cur.convValue > 0,
+    weekly,
     kpis: {
       spend: kpi(cur.spend, prev.spend),
       impressions: kpi(cur.impressions, prev.impressions),
