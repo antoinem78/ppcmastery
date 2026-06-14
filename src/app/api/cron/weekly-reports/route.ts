@@ -37,15 +37,25 @@ export async function GET(request: Request) {
     try {
       const report = await generateWeeklyReport(customerId);
 
-      // Post to the client channel (best-effort).
-      if (process.env.SLACK_BOT_TOKEN && companyName) {
+      // Post a DRAFT to the internal review channel (not the client's channel) —
+      // the team reviews + edits before it goes to the client. Includes a link
+      // to the client's live dashboard.
+      const reviewChannel = process.env.SLACK_REVIEW_CHANNEL;
+      if (process.env.SLACK_BOT_TOKEN && reviewChannel) {
         try {
-          const { postMessage, channelNameFor } = await import(
-            "@/lib/integrations/slack"
-          );
-          await postMessage(`#${channelNameFor(companyName)}`, report.text);
+          const { postMessage } = await import("@/lib/integrations/slack");
+          const base = process.env.APP_BASE_URL ?? "https://ppcmastery.vercel.app";
+          const draft = [
+            `📊 *Weekly report draft — ${companyName}*`,
+            "",
+            report.text,
+            "",
+            `👉 Client dashboard: ${base}/onboarding/${clientId}`,
+            "_Draft for review — not yet sent to the client._",
+          ].join("\n");
+          await postMessage(reviewChannel, draft);
         } catch (e) {
-          console.error(`Weekly Slack post failed for ${clientId}:`, e);
+          console.error(`Weekly draft post failed for ${clientId}:`, e);
         }
       }
 
