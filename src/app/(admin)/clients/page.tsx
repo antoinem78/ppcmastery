@@ -17,12 +17,20 @@ export default async function ClientsPage() {
     <div className="p-10">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-zinc-900">Clients</h1>
-        <Link
-          href="/clients/new"
-          className="rounded-md bg-[#0B1F3A] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0B1F3A]/90"
-        >
-          New client
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/clients/reporting"
+            className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+          >
+            Add managed account
+          </Link>
+          <Link
+            href="/clients/new"
+            className="rounded-md bg-[#0B1F3A] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0B1F3A]/90"
+          >
+            New client
+          </Link>
+        </div>
       </div>
 
       {error && (

@@ -242,3 +242,74 @@ export async function refreshGoogleAdsLinkStatus(clientId: string): Promise<void
   revalidatePath(`/clients/${clientId}`);
   revalidatePath(`/onboarding/${clientId}`);
 }
+
+// Add a reporting-only client: an existing client whose Google Ads account
+// already sits under our MCC (e.g. moved from the BJ PPC main MCC into the PPC
+// Mastery sub-MCC). No wizard, no contract, no payment — we verify we can reach
+// the account, resolve the reporting leaf, and stand up the dashboard.
+export async function addReportingClient(formData: FormData): Promise<void> {
+  const { email: adminEmail } = await requireAgencyAdmin();
+
+  const companyName = String(formData.get("company_name") ?? "").trim();
+  const contactEmail = String(formData.get("contact_email") ?? "").trim();
+  const customerId = String(formData.get("customer_id") ?? "").replace(/\D/g, "");
+  if (!companyName || !contactEmail) {
+    throw new Error("Company name and a contact email are required.");
+  }
+  if (customerId.length !== 10) {
+    throw new Error("Enter a valid 10-digit Google Ads ID (the account or its MCC).");
+  }
+
+  // Verify we actually manage this account and find the leaf to report on.
+  const { resolveReportingCustomerId } = await import("@/lib/integrations/google-ads");
+  let reportingId: string | null;
+  try {
+    const resolved = await resolveReportingCustomerId(customerId);
+    if (resolved.multi) {
+      throw new Error(
+        "This manager has multiple accounts — single-account add only for now (multi-select coming).",
+      );
+    }
+    reportingId = resolved.reportingId;
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("multiple accounts")) throw e;
+    throw new Error(
+      "Couldn't reach that account from our MCC — is it linked/moved under the PPC Mastery MCC yet?",
+    );
+  }
+  if (!reportingId) {
+    throw new Error("No reportable ad account found under that ID.");
+  }
+
+  const supabase = createSupabaseAdminClient();
+  const { data: client, error } = await supabase
+    .from("clients")
+    .insert({
+      company_name: companyName,
+      contact_email: contactEmail,
+      status: "active",
+      source: "reporting_only",
+    })
+    .select("id")
+    .single();
+  if (error || !client) throw new Error(error?.message ?? "Failed to create client.");
+
+  const { error: stateErr } = await supabase.from("onboarding_state").insert({
+    client_id: client.id,
+    current_step: "complete",
+    ad_link_status: "approved",
+    google_ads_customer_id: customerId,
+    google_ads_reporting_customer_id: reportingId,
+  });
+  if (stateErr) throw new Error(stateErr.message);
+
+  await logActivity({
+    clientId: client.id,
+    eventType: "reporting_client_added",
+    actor: `admin:${adminEmail}`,
+    payload: { customer_id: customerId, reporting_customer_id: reportingId },
+  });
+
+  revalidatePath("/clients");
+  redirect(`/clients/${client.id}`);
+}

@@ -71,11 +71,28 @@ export default async function OnboardingPage({
   const { data: client } = await supabase
     .from("clients")
     .select(
-      "id, company_name, contact_name, contact_email, service_tier, custom_monthly_price, platforms, access_tasks",
+      "id, company_name, contact_name, contact_email, service_tier, custom_monthly_price, platforms, access_tasks, source",
     )
     .eq("id", id)
     .single();
   if (!client) notFound();
+
+  // Reporting-only clients have no onboarding funnel — never show the wizard.
+  if (client.source === "reporting_only") {
+    return (
+      <Shell>
+        <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center shadow-sm">
+          <h1 className="text-xl font-semibold text-zinc-900">
+            {client.company_name}
+          </h1>
+          <p className="mt-2 text-sm text-zinc-500">
+            Your account is managed by PPC Mastery — there&rsquo;s nothing to set
+            up here. Your team will share performance updates in Slack.
+          </p>
+        </div>
+      </Shell>
+    );
+  }
 
   const { data: state } = await supabase
     .from("onboarding_state")

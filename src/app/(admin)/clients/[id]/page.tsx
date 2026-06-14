@@ -182,8 +182,18 @@ export default async function ClientDetailPage({
           </dl>
         </section>
 
-        {/* Onboarding checklist */}
+        {/* Onboarding checklist (reporting-only clients skip the funnel) */}
         <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+          {client.source === "reporting_only" ? (
+            <>
+              <h2 className="text-sm font-semibold text-zinc-900">Managed account</h2>
+              <p className="mt-2 text-sm text-zinc-500">
+                Reporting-only client (no onboarding funnel). Their Google Ads
+                account is managed under our MCC; the dashboard is below.
+              </p>
+            </>
+          ) : (
+          <>
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-zinc-900">Onboarding</h2>
             <span className="text-xs font-medium text-zinc-500">
@@ -229,6 +239,8 @@ export default async function ClientDetailPage({
               Send this to the prospect. Anyone with the link can complete the wizard.
             </p>
           </div>
+          </>
+          )}
         </section>
       </div>
 
