@@ -180,6 +180,121 @@ async function changeSummary(customerId: string, start: string, end: string) {
   return { count: rows.length, lines };
 }
 
+// Classify one change_event into a specific, plain-English optimisation label,
+// using the resource type, the operation, the changed field mask, and the new
+// resource (to distinguish negative keywords / pauses / resumes). Returns null
+// for noise we don't want to surface. These are FACTS (what changed); any
+// rationale ("to improve lead quality") is added later by the narrative LLM.
+function classifyChange(ce: {
+  changeResourceType?: string;
+  resourceChangeOperation?: string;
+  changedFields?: string;
+  newResource?: Record<string, Record<string, unknown>>;
+}): string | null {
+  const type = ce.changeResourceType ?? "";
+  const op = ce.resourceChangeOperation ?? "";
+  const fields = ce.changedFields ?? "";
+  const has = (f: string) => fields.toLowerCase().includes(f.toLowerCase());
+  const nr = ce.newResource ?? {};
+  const statusOf = (k: string) => String((nr[k]?.status as string) ?? "");
+
+  switch (type) {
+    case "CAMPAIGN": {
+      if (has("status")) {
+        const s = statusOf("campaign");
+        return s === "PAUSED" ? "campaigns paused" : s === "ENABLED" ? "campaigns resumed" : s === "REMOVED" ? "campaigns removed" : "campaign status changed";
+      }
+      if (has("targetCpa") || has("targetRoas") || has("biddingStrategy") || has("maximizeConversion")) return "bid-strategy targets adjusted";
+      return "campaign settings updated";
+    }
+    case "AD_GROUP": {
+      if (has("status")) {
+        const s = statusOf("adGroup");
+        return s === "PAUSED" ? "ad groups paused" : s === "ENABLED" ? "ad groups resumed" : "ad group status changed";
+      }
+      if (has("cpcBid")) return "ad group bids adjusted";
+      return "ad groups updated";
+    }
+    case "CAMPAIGN_BUDGET":
+      return "budgets adjusted";
+    case "AD_GROUP_CRITERION": {
+      const neg = Boolean((nr.adGroupCriterion?.negative as boolean) ?? false);
+      if (has("negative") || neg) return "negative keywords added";
+      if (op === "CREATE") return "keywords added";
+      if (op === "REMOVE") return "keywords removed";
+      if (has("cpcBid")) return "keyword bids adjusted";
+      if (has("status")) return "keyword status changed";
+      return "keywords updated";
+    }
+    case "CAMPAIGN_CRITERION": {
+      const neg = Boolean((nr.campaignCriterion?.negative as boolean) ?? false);
+      if (has("negative") || neg) return "campaign-level negatives added";
+      return "campaign targeting updated";
+    }
+    case "AD_GROUP_AD":
+    case "AD":
+      return op === "CREATE" ? "ads added" : op === "REMOVE" ? "ads removed" : "ads updated";
+    case "AD_GROUP_BID_MODIFIER":
+      return "bid adjustments set";
+    case "AD_GROUP_ASSET":
+    case "CAMPAIGN_ASSET":
+      return "assets updated";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Detailed weekly optimisations, grouped by campaign + action with counts —
+ * the raw material for the report's "Optimisations Made" section. Facts only;
+ * the narrative layer turns them into client-facing sentences.
+ */
+export async function getWeeklyOptimisations(
+  customerId: string,
+  start: string,
+  end: string,
+): Promise<string[]> {
+  const [campRows, changeRows] = await Promise.all([
+    gaqlSearch(customerId, "SELECT campaign.id, campaign.name FROM campaign"),
+    gaqlSearch(
+      customerId,
+      `SELECT change_event.change_resource_type, change_event.resource_change_operation,
+              change_event.changed_fields, change_event.campaign, change_event.new_resource
+       FROM change_event
+       WHERE change_event.change_date_time >= '${start} 00:00:00'
+         AND change_event.change_date_time <= '${end} 23:59:59'
+       ORDER BY change_event.change_date_time DESC LIMIT 2000`,
+    ),
+  ]);
+
+  const nameById: Record<string, string> = {};
+  for (const r of campRows) {
+    const c = (r.campaign ?? {}) as { id?: string | number; name?: string };
+    if (c.id != null) nameById[String(c.id)] = c.name ?? "";
+  }
+
+  const counts: Record<string, number> = {};
+  for (const r of changeRows) {
+    const ce = (r.changeEvent ?? {}) as Parameters<typeof classifyChange>[0] & {
+      campaign?: string;
+    };
+    const action = classifyChange(ce);
+    if (!action) continue;
+    const campId = (ce.campaign?.match(/campaigns\/(\d+)/) ?? [])[1];
+    const camp = (campId && nameById[campId]) || "account-level";
+    counts[`${camp}|||${action}`] = (counts[`${camp}|||${action}`] ?? 0) + 1;
+  }
+
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, n]) => {
+      const [camp, action] = key.split("|||");
+      return camp === "account-level"
+        ? `${action} (${n})`
+        : `${camp} — ${action} (${n})`;
+    });
+}
+
 async function buildWeekly(
   customerId: string,
   tz: string,

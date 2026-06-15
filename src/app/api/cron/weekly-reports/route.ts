@@ -5,7 +5,11 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity";
-import { generateWeeklyReport, getDashboard } from "@/lib/integrations/google-ads/reporting";
+import {
+  generateWeeklyReport,
+  getDashboard,
+  getWeeklyOptimisations,
+} from "@/lib/integrations/google-ads/reporting";
 import { generateNarrative } from "@/lib/integrations/anthropic/narrative";
 
 export const maxDuration = 300;
@@ -49,7 +53,12 @@ export async function GET(request: Request) {
       let narrative: string | null = null;
       try {
         const dash = await getDashboard(clientId, reportingId, 7);
-        narrative = await generateNarrative(dash, companyName);
+        const optimisations = await getWeeklyOptimisations(
+          reportingId,
+          dash.weekly.start,
+          dash.weekly.end,
+        );
+        narrative = await generateNarrative(dash, companyName, optimisations);
       } catch (e) {
         console.error(`Narrative skipped for ${clientId}:`, e);
       }

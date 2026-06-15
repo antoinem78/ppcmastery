@@ -18,7 +18,11 @@ function deltaPhrase(k: Kpi): string {
 // Turn the verified payload into a compact, unambiguous facts block. Every
 // number Claude is allowed to use appears here, pre-formatted — so it copies
 // rather than computes.
-function factsBlock(p: DashboardPayload, companyName: string): string {
+function factsBlock(
+  p: DashboardPayload,
+  companyName: string,
+  optimisations: string[],
+): string {
   const money = (n: number, dp = 0) =>
     new Intl.NumberFormat("en", {
       style: "currency",
@@ -59,9 +63,24 @@ function factsBlock(p: DashboardPayload, companyName: string): string {
     );
   }
 
+  const converting = p.byCampaign
+    .filter((c) => c.conversions > 0)
+    .sort((a, b) => b.conversions - a.conversions)
+    .slice(0, 5);
+  if (converting.length) {
+    lines.push(``, `TOP CONVERTING CAMPAIGNS THIS WEEK (ranked by conversions):`);
+    for (const c of converting) {
+      lines.push(
+        `- ${c.name}: ${dec(c.conversions)} conversions, spend ${money(c.spend)}, ${money(c.costPerConv, 2)}/conv`,
+      );
+    }
+  } else {
+    lines.push(``, `TOP CONVERTING CAMPAIGNS: none recorded a conversion this week.`);
+  }
+
   if (p.byCampaign.length) {
-    lines.push(``, `TOP CAMPAIGNS THIS WEEK (by spend):`);
-    for (const c of p.byCampaign.slice(0, 6)) {
+    lines.push(``, `ALL CAMPAIGNS THIS WEEK (by spend):`);
+    for (const c of p.byCampaign.slice(0, 8)) {
       lines.push(
         `- ${c.name}: spend ${money(c.spend)}, ${dec(c.conversions)} conversions, ${money(c.costPerConv, 2)}/conv`,
       );
@@ -80,13 +99,18 @@ function factsBlock(p: DashboardPayload, companyName: string): string {
     );
   }
 
+  // Cap to the most significant changes (already count-sorted) so the LLM
+  // consolidates rather than transcribing a 50-line change log.
+  const topOpt = optimisations.slice(0, 15);
+  const overflow = optimisations.length - topOpt.length;
   lines.push(
     ``,
-    `ACCOUNT CHANGES MADE THIS WEEK:`,
-    w.changeLines.length
-      ? w.changeLines.map((l) => `- ${l}`).join("\n")
+    `OPTIMISATIONS MADE THIS WEEK (verified change log — campaign — action (count); already ranked by volume):`,
+    optimisations.length
+      ? topOpt.map((l) => `- ${l}`).join("\n")
       : `- No account changes were logged this week.`,
   );
+  if (overflow > 0) lines.push(`- (plus ${overflow} further minor changes)`);
 
   return lines.join("\n");
 }
@@ -97,23 +121,36 @@ const SYSTEM = (brand: string) =>
 Voice: warm, professional, and specific — an experienced human analyst, not a robot. Plain language a business owner understands.
 
 HARD RULES:
-- Use ONLY the figures in the DATA block. Never invent, estimate, or recompute a number. If a figure isn't in the data, don't state it.
+- Use ONLY the figures in the DATA block. Never invent, estimate, or recompute a number, a percentage, a campaign name, or a metric not present in the data.
 - Quote figures exactly as given (same currency, same rounding).
-- Do not use markdown headings, tables, or bullet symbols — this is read in Slack and email. Short paragraphs only.
 - If conversion-value tracking is absent, never mention revenue or ROAS.
-- Keep it grounded. If the week is quiet or the data is thin, keep it short — do not pad.
+- Optimisations: describe ONLY the changes in the change log. You may add a brief, conservative rationale (e.g. "to consolidate budget", "to improve lead quality") and reference the campaign by name, but never claim a specific result or number that isn't in the data.
+- Keep it grounded. If the week is quiet or the data is thin, keep each section short — do not pad. If a section has no data, write one honest line rather than inventing content.
+- This is a DRAFT a human reviews before it reaches the client.
 
-STRUCTURE (3-5 short paragraphs):
-1. Open with the headline: spend and conversions for the week and which way they moved.
-2. Explain what drove it — which campaigns carried the spend and conversions, any notable search terms or device skew.
-3. If account changes were made this week, describe them in plain English and tie them to likely impact next week where it's reasonable (e.g. raising a target tends to increase volume and spend).
-4. Close with a brief, confident outlook or next step.
+FORMAT — output these five sections in order, each with its title in *bold* (Slack formatting), separated by a blank line. Use "- " bullets only in the two list sections. Everything else is short prose paragraphs. No markdown headers (#), no tables.
+
+*Top Converting Campaigns*
+A short bulleted list from the data (campaign name / conversions). If none converted, say so in one line.
+
+*Performance Summary*
+One paragraph: clicks, impressions, CTR, conversions and cost per conversion for the week, with the week-on-week direction, plus a sentence of plain interpretation.
+
+*Optimisations Made*
+A bulleted list turning the change log into clear client-facing sentences (e.g. "Expanded negative keyword lists in the X campaign to filter irrelevant traffic"). One bullet per distinct change type/campaign.
+
+*Campaign Insights*
+One short paragraph tying the campaigns to the results — which carried conversions, what was paused or reallocated, what's being monitored.
+
+*Forward Plan*
+One short paragraph on next week: what continues, what's being tested, what to watch.
 
 Write the update now.`;
 
 export async function generateNarrative(
   payload: DashboardPayload,
   companyName: string,
+  optimisations: string[] = [],
 ): Promise<string | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
@@ -124,13 +161,13 @@ export async function generateNarrative(
   try {
     const message = await client.messages.create({
       model: MODEL,
-      max_tokens: 2000,
+      max_tokens: 2500,
       thinking: { type: "adaptive" },
       system: SYSTEM(brand),
       messages: [
         {
           role: "user",
-          content: `DATA (verified — use these figures verbatim):\n\n${factsBlock(payload, companyName)}`,
+          content: `DATA (verified — use these figures verbatim):\n\n${factsBlock(payload, companyName, optimisations)}`,
         },
       ],
     });
