@@ -17,8 +17,10 @@ Verified June 2026: our existing dev token + OAuth reach the BJ main MCC and see
 
 1. Create a new Supabase project (EU/Ireland, same org). Name it e.g.
    "MCC Command Center".
-2. In its SQL editor, run **all** migrations in order from
-   `supabase/migrations/`: `0001` → `0011`. (Fresh DB — every migration applies.)
+2. In its SQL editor, paste and run **`supabase/migrations/_consolidated_fresh_install.sql`**
+   — the full schema (migrations 0001–0011) in a single run, for fresh clone DBs.
+   (Or run the numbered files `0001`→`0011` in order; the consolidated file is
+   just the one-paste convenience.)
 3. From Project Settings → API Keys, copy the **Project URL** and the **secret**
    key for the env block below.
 
