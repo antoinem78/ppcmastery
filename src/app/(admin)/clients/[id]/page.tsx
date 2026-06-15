@@ -283,8 +283,8 @@ export default async function ClientDetailPage({
                 </button>
               </form>
               <p className="mt-2 text-xs text-zinc-400">
-                Sends a management request from the PPC Mastery MCC. The client
-                then approves it inside Google Ads.
+                Sends a management request from our MCC. The client then
+                approves it inside Google Ads.
               </p>
             </>
           )}
@@ -311,8 +311,7 @@ export default async function ClientDetailPage({
 
           {state.ad_link_status === "approved" && (
             <p className="mt-3 text-sm text-emerald-600">
-              Link active — this account is now managed under the PPC Mastery
-              MCC.
+              Link active — this account is connected and managed under our MCC.
             </p>
           )}
 

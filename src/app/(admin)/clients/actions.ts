@@ -274,7 +274,7 @@ export async function addReportingClient(formData: FormData): Promise<void> {
   } catch (e) {
     if (e instanceof Error && e.message.includes("multiple accounts")) throw e;
     throw new Error(
-      "Couldn't reach that account from our MCC — is it linked/moved under the PPC Mastery MCC yet?",
+      "Couldn't reach that account from our MCC — is it linked/moved under our MCC yet?",
     );
   }
   if (!reportingId) {
