@@ -243,6 +243,18 @@ export async function refreshGoogleAdsLinkStatus(clientId: string): Promise<void
   revalidatePath(`/onboarding/${clientId}`);
 }
 
+// Permanently delete a client and everything keyed to it (onboarding_state,
+// activity_log, ads_report_cache, weekly_reports all cascade on delete). Admin
+// only. Does NOT cancel any Stripe subscription — that's a separate action.
+export async function deleteClient(clientId: string): Promise<void> {
+  await requireAgencyAdmin();
+  const supabase = createSupabaseAdminClient();
+  const { error } = await supabase.from("clients").delete().eq("id", clientId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/clients");
+  redirect("/clients");
+}
+
 // Add a reporting-only client: an existing client whose Google Ads account
 // already sits under our MCC (e.g. moved from the BJ PPC main MCC into the PPC
 // Mastery sub-MCC). No wizard, no contract, no payment — we verify we can reach
