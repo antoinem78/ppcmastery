@@ -16,6 +16,7 @@ export function isSlackConfigured(): boolean {
 async function slack<T extends { ok: boolean; error?: string }>(
   method: string,
   body: Record<string, unknown>,
+  attempt = 0,
 ): Promise<T> {
   const token = process.env.SLACK_BOT_TOKEN;
   if (!token) throw new Error("Slack is not configured (SLACK_BOT_TOKEN missing).");
@@ -27,6 +28,13 @@ async function slack<T extends { ok: boolean; error?: string }>(
     },
     body: JSON.stringify(body),
   });
+  // chat.postMessage is rate-limited per channel; under concurrency we can hit
+  // 429. Respect Retry-After and retry a few times rather than dropping a post.
+  if (res.status === 429 && attempt < 4) {
+    const retryAfter = Number(res.headers.get("retry-after") ?? "1");
+    await new Promise((r) => setTimeout(r, (retryAfter + 0.5) * 1000));
+    return slack<T>(method, body, attempt + 1);
+  }
   const data = (await res.json()) as T;
   if (!data.ok) throw new Error(`Slack ${method} failed: ${data.error}`);
   return data;

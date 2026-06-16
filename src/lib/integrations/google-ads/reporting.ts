@@ -452,7 +452,16 @@ export async function generateWeeklyReport(customerId: string): Promise<{
   const currency = cust.currencyCode ?? "USD";
   const timeZone = cust.timeZone ?? "Etc/UTC";
   const weekly = await buildWeekly(customerId, timeZone);
+  return { currency, timeZone, weekly, text: formatWeeklyText(weekly, currency) };
+}
 
+/**
+ * The bulleted weekly-update text (Slack fallback when no LLM narrative). Pure
+ * formatting over an already-computed WeeklySummary — so callers that already
+ * have the dashboard payload (which contains `weekly`) can reuse it without
+ * re-querying.
+ */
+export function formatWeeklyText(weekly: WeeklySummary, currency: string): string {
   const money = (n: number) =>
     new Intl.NumberFormat("en", {
       style: "currency",
@@ -468,15 +477,12 @@ export async function generateWeeklyReport(customerId: string): Promise<{
   const changes = weekly.changeLines.length
     ? `Changes this week: ${weekly.changeLines.join(", ")}.`
     : "No account changes this week.";
-
-  const text = [
+  return [
     `📈 *Weekly update* (${weekly.start} → ${weekly.end})`,
     `• Spend: ${money(weekly.spend.value)}${delta(weekly.spend)}`,
     `• Conversions: ${dec1(weekly.conversions.value)}${delta(weekly.conversions)}`,
     `• ${changes}`,
   ].join("\n");
-
-  return { currency, timeZone, weekly, text };
 }
 
 function prettyDevice(d: string): string {

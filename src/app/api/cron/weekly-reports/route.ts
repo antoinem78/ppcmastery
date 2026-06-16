@@ -1,18 +1,26 @@
 // Weekly cron (vercel.json, Mondays): for every client with an active Google
-// Ads link, generate the weekly report and post it to their Slack channel.
-// CRON_SECRET-protected. Figures come from the data layer; the text is a
-// template (LLM wording can swap in later without touching the numbers).
+// Ads link, generate the weekly report and post a review draft to Slack.
+// CRON_SECRET-protected. Figures come from the data layer; the prose is an LLM
+// narrative (falls back to a bulleted template when no Anthropic key).
+//
+// Scale: clients run with bounded concurrency (each is a dashboard pull + an
+// LLM call, ~25s), so a Command-Center-sized book (up to ~40) completes inside
+// the 300s function window instead of timing out part-way.
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity";
 import {
-  generateWeeklyReport,
   getDashboard,
   getWeeklyOptimisations,
+  formatWeeklyText,
 } from "@/lib/integrations/google-ads/reporting";
 import { generateNarrative } from "@/lib/integrations/anthropic/narrative";
 
 export const maxDuration = 300;
+
+// How many clients to process at once. High enough to clear ~40 clients in the
+// window, low enough to stay friendly to the Google/Anthropic/Slack limits.
+const CONCURRENCY = 5;
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -32,10 +40,15 @@ export async function GET(request: Request) {
     .eq("ad_link_status", "approved")
     .not("google_ads_customer_id", "is", null);
 
+  const clients = rows ?? [];
+  const base = process.env.APP_BASE_URL ?? "https://ppcmastery.vercel.app";
+  const reviewChannel = process.env.SLACK_REVIEW_CHANNEL;
+  const slackOn = !!process.env.SLACK_BOT_TOKEN && !!reviewChannel;
+
   let sent = 0;
   let failed = 0;
 
-  for (const row of rows ?? []) {
+  async function processClient(row: (typeof clients)[number]): Promise<void> {
     const clientId = row.client_id as string;
     const customerId = row.google_ads_customer_id as string;
     // Report on the leaf account (the linked id may be a manager/MCC).
@@ -45,54 +58,46 @@ export async function GET(request: Request) {
       (row.clients as unknown as { company_name?: string } | null)?.company_name ?? "";
 
     try {
-      const report = await generateWeeklyReport(reportingId);
+      // One dashboard pull (cached) gives us the verified weekly numbers + the
+      // material for the narrative — no separate weekly recompute.
+      const dash = await getDashboard(clientId, reportingId, 7);
+      const optimisations = await getWeeklyOptimisations(
+        reportingId,
+        dash.weekly.start,
+        dash.weekly.end,
+      );
 
-      // Richer prose narrative (LLM, words only). Needs the fuller weekly
-      // dashboard for material; falls back to the bulleted template if the
-      // dashboard or the Anthropic key is unavailable.
       let narrative: string | null = null;
       try {
-        const dash = await getDashboard(clientId, reportingId, 7);
-        const optimisations = await getWeeklyOptimisations(
-          reportingId,
-          dash.weekly.start,
-          dash.weekly.end,
-        );
         narrative = await generateNarrative(dash, companyName, optimisations);
       } catch (e) {
         console.error(`Narrative skipped for ${clientId}:`, e);
       }
-      const body = narrative ?? report.text;
+      const body = narrative ?? formatWeeklyText(dash.weekly, dash.currency);
 
-      // Post a DRAFT to the internal review channel (not the client's channel) —
-      // the team reviews + edits before it goes to the client. Includes a link
-      // to the client's live dashboard.
-      const reviewChannel = process.env.SLACK_REVIEW_CHANNEL;
-      if (process.env.SLACK_BOT_TOKEN && reviewChannel) {
+      if (slackOn) {
         try {
           const { postMessage } = await import("@/lib/integrations/slack");
-          const base = process.env.APP_BASE_URL ?? "https://ppcmastery.vercel.app";
           const draft = [
-            `📊 *Weekly report draft — ${companyName}* (${report.weekly.start} → ${report.weekly.end})`,
+            `📊 *Weekly report draft — ${companyName}* (${dash.weekly.start} → ${dash.weekly.end})`,
             "",
             body,
             "",
             `👉 Client dashboard: ${base}/onboarding/${clientId}`,
             "_Draft for review — not yet sent to the client._",
           ].join("\n");
-          await postMessage(reviewChannel, draft);
+          await postMessage(reviewChannel!, draft);
         } catch (e) {
           console.error(`Weekly draft post failed for ${clientId}:`, e);
         }
       }
 
-      // Store the report (best-effort — works once migration 0009 is run).
       try {
         await supabase.from("weekly_reports").insert({
           client_id: clientId,
-          period_start: report.weekly.start,
-          period_end: report.weekly.end,
-          payload: { ...report.weekly, narrative },
+          period_start: dash.weekly.start,
+          period_end: dash.weekly.end,
+          payload: { ...dash.weekly, narrative },
         });
       } catch {
         /* table may not exist yet */
@@ -102,7 +107,7 @@ export async function GET(request: Request) {
         clientId,
         eventType: "weekly_report_sent",
         actor: "system:cron",
-        payload: { period_end: report.weekly.end },
+        payload: { period_end: dash.weekly.end },
       });
       sent++;
     } catch (e) {
@@ -111,5 +116,16 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ clients: rows?.length ?? 0, sent, failed });
+  // Bounded-concurrency worker pool over the client list.
+  let cursor = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, clients.length) }, async () => {
+      while (cursor < clients.length) {
+        const row = clients[cursor++];
+        await processClient(row);
+      }
+    }),
+  );
+
+  return NextResponse.json({ clients: clients.length, sent, failed });
 }
