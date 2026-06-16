@@ -9,10 +9,13 @@ import { formatMoney } from "@/lib/config";
 import { CopyButton } from "@/components/CopyButton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { DeleteClientForm } from "@/components/DeleteClientForm";
+import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
 import {
   approveGoogleAdsLink,
   refreshGoogleAdsLinkStatus,
   deleteClient,
+  cancelClientSubscription,
+  resumeClientSubscription,
 } from "../actions";
 import {
   getDashboard,
@@ -388,6 +391,51 @@ export default async function ClientDetailPage({
           </ul>
         )}
       </section>
+
+      {/* Billing / subscription */}
+      {client.stripe_subscription_id && (
+        <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <h2 className="text-sm font-semibold text-zinc-900">Billing</h2>
+          {client.cancellation_effective_at ? (
+            <>
+              <p className="mt-2 text-sm text-amber-700">
+                Cancellation scheduled — ends{" "}
+                {new Date(client.cancellation_effective_at).toLocaleDateString("en-IE", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}
+                . The final renewal inside the notice window still bills; the client is
+                marked churned when Stripe ends it.
+              </p>
+              <form action={resumeClientSubscription.bind(null, id)} className="mt-3">
+                <ConfirmSubmitButton
+                  message="Undo the scheduled cancellation and keep this subscription active?"
+                  className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+                >
+                  Resume subscription
+                </ConfirmSubmitButton>
+              </form>
+            </>
+          ) : (
+            <>
+              <p className="mt-2 text-xs text-zinc-500">
+                Cancel with 31 days&rsquo; notice. The final renewal inside the notice
+                window still bills; the subscription then ends and the client is marked
+                churned.
+              </p>
+              <form action={cancelClientSubscription.bind(null, id)} className="mt-3">
+                <ConfirmSubmitButton
+                  message={`Schedule cancellation for ${client.company_name} with 31 days' notice? The final renewal in that window still bills.`}
+                  className="rounded-md border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50"
+                >
+                  Cancel subscription (31-day notice)
+                </ConfirmSubmitButton>
+              </form>
+            </>
+          )}
+        </section>
+      )}
 
       {/* Danger zone */}
       <section className="mt-6 rounded-xl border border-red-200 bg-white p-6 shadow-sm">

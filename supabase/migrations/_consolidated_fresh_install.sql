@@ -10,7 +10,7 @@
 
 -- --- Enums -------------------------------------------------------------------
 create type client_status as enum (
-  'prospect', 'onboarding', 'active', 'paused', 'churned'
+  'prospect', 'onboarding', 'active', 'paused', 'churned', 'past_due'  -- past_due: 0013
 );
 
 create type onboarding_step as enum (
@@ -49,6 +49,7 @@ create table clients (
   platforms            text[] not null default '{"Google Ads","Microsoft Ads"}', -- 0005
   access_tasks         text[] not null default '{ga4,gtm,gsc}',  -- 0007
   source               text not null default 'onboarding',       -- 0011 ('onboarding' | 'reporting_only')
+  cancellation_effective_at timestamptz,                         -- 0013
   created_at           timestamptz not null default now(),
   updated_at           timestamptz not null default now()
 );

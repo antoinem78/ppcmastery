@@ -171,6 +171,128 @@ export async function finalizeFromCheckoutSession(
   return true;
 }
 
+const NOTICE_DAYS = 31;
+
+/**
+ * Schedule cancellation with 31 days' notice: set the subscription's `cancel_at`
+ * to now + 31 days (NOT cancel_at_period_end) so the renewal that falls inside
+ * the notice window still bills — guaranteeing one final payment. The client
+ * stays 'active' until Stripe actually ends it (customer.subscription.deleted →
+ * churned). Returns the effective date.
+ */
+export async function scheduleCancellation(clientId: string): Promise<Date> {
+  const supabase = createSupabaseAdminClient();
+  const { data: client } = await supabase
+    .from("clients")
+    .select("stripe_subscription_id")
+    .eq("id", clientId)
+    .single();
+  if (!client?.stripe_subscription_id) {
+    throw new Error("This client has no Stripe subscription to cancel.");
+  }
+
+  const cancelAt = new Date(Date.now() + NOTICE_DAYS * 24 * 60 * 60 * 1000);
+  await getStripe().subscriptions.update(client.stripe_subscription_id, {
+    cancel_at: Math.floor(cancelAt.getTime() / 1000),
+  });
+
+  await supabase
+    .from("clients")
+    .update({ cancellation_effective_at: cancelAt.toISOString() })
+    .eq("id", clientId);
+
+  await logActivity({
+    clientId,
+    eventType: "subscription_cancellation_scheduled",
+    actor: "admin",
+    payload: { effective_at: cancelAt.toISOString(), notice_days: NOTICE_DAYS },
+  });
+  return cancelAt;
+}
+
+/** Undo a scheduled cancellation (clear cancel_at) before it takes effect. */
+export async function resumeSubscription(clientId: string): Promise<void> {
+  const supabase = createSupabaseAdminClient();
+  const { data: client } = await supabase
+    .from("clients")
+    .select("stripe_subscription_id")
+    .eq("id", clientId)
+    .single();
+  if (!client?.stripe_subscription_id) {
+    throw new Error("This client has no Stripe subscription.");
+  }
+
+  await getStripe().subscriptions.update(client.stripe_subscription_id, {
+    cancel_at: null,
+  });
+  await supabase
+    .from("clients")
+    .update({ cancellation_effective_at: null })
+    .eq("id", clientId);
+
+  await logActivity({
+    clientId,
+    eventType: "subscription_cancellation_resumed",
+    actor: "admin",
+  });
+}
+
+/** Find the client behind a Stripe subscription id. */
+async function clientBySubscription(subscriptionId: string) {
+  const supabase = createSupabaseAdminClient();
+  const { data } = await supabase
+    .from("clients")
+    .select("id, status")
+    .eq("stripe_subscription_id", subscriptionId)
+    .single();
+  return data;
+}
+
+/** Renewal payment failed → move the client into dunning ('past_due'). */
+export async function markPaymentFailed(subscriptionId: string): Promise<void> {
+  const client = await clientBySubscription(subscriptionId);
+  if (!client || client.status === "past_due" || client.status === "churned") return;
+  const supabase = createSupabaseAdminClient();
+  await supabase.from("clients").update({ status: "past_due" }).eq("id", client.id);
+  await logActivity({
+    clientId: client.id,
+    eventType: "payment_failed",
+    actor: "system:stripe-webhook",
+    payload: { subscription_id: subscriptionId },
+  });
+}
+
+/** A renewal succeeded → if the client was in dunning, restore to 'active'. */
+export async function markPaymentRecovered(subscriptionId: string): Promise<void> {
+  const client = await clientBySubscription(subscriptionId);
+  if (!client || client.status !== "past_due") return;
+  const supabase = createSupabaseAdminClient();
+  await supabase.from("clients").update({ status: "active" }).eq("id", client.id);
+  await logActivity({
+    clientId: client.id,
+    eventType: "payment_recovered",
+    actor: "system:stripe-webhook",
+    payload: { subscription_id: subscriptionId },
+  });
+}
+
+/** Subscription ended at Stripe (after the notice window) → client churned. */
+export async function markSubscriptionEnded(subscriptionId: string): Promise<void> {
+  const client = await clientBySubscription(subscriptionId);
+  if (!client || client.status === "churned") return;
+  const supabase = createSupabaseAdminClient();
+  await supabase
+    .from("clients")
+    .update({ status: "churned", cancellation_effective_at: null })
+    .eq("id", client.id);
+  await logActivity({
+    clientId: client.id,
+    eventType: "subscription_ended",
+    actor: "system:stripe-webhook",
+    payload: { subscription_id: subscriptionId },
+  });
+}
+
 /** Verify + parse a webhook payload. Throws on bad signature. */
 export function constructWebhookEvent(
   rawBody: string,

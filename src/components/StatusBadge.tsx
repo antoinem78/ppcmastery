@@ -4,8 +4,13 @@ const STATUS_STYLES: Record<string, string> = {
   prospect: "bg-zinc-100 text-zinc-600",
   onboarding: "bg-amber-100 text-amber-700",
   active: "bg-emerald-100 text-emerald-700",
+  past_due: "bg-rose-100 text-rose-700",
   paused: "bg-orange-100 text-orange-700",
   churned: "bg-red-100 text-red-700",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  past_due: "past due",
 };
 
 export function StatusBadge({ status }: { status: string }) {
@@ -15,7 +20,7 @@ export function StatusBadge({ status }: { status: string }) {
         STATUS_STYLES[status] ?? "bg-zinc-100 text-zinc-600"
       }`}
     >
-      {status}
+      {STATUS_LABELS[status] ?? status}
     </span>
   );
 }

@@ -243,6 +243,34 @@ export async function refreshGoogleAdsLinkStatus(clientId: string): Promise<void
   revalidatePath(`/onboarding/${clientId}`);
 }
 
+// Schedule the client's subscription for cancellation with 31 days' notice.
+// Admin-only. The final renewal inside the notice window still bills.
+export async function cancelClientSubscription(clientId: string): Promise<void> {
+  const { email: adminEmail } = await requireAgencyAdmin();
+  const { scheduleCancellation } = await import("@/lib/integrations/stripe");
+  await scheduleCancellation(clientId);
+  // (scheduleCancellation logs the event; actor recorded for the audit trail.)
+  await logActivity({
+    clientId,
+    eventType: "subscription_cancel_requested",
+    actor: `admin:${adminEmail}`,
+  });
+  revalidatePath(`/clients/${clientId}`);
+}
+
+// Undo a scheduled cancellation before its effective date. Admin-only.
+export async function resumeClientSubscription(clientId: string): Promise<void> {
+  const { email: adminEmail } = await requireAgencyAdmin();
+  const { resumeSubscription } = await import("@/lib/integrations/stripe");
+  await resumeSubscription(clientId);
+  await logActivity({
+    clientId,
+    eventType: "subscription_resume_requested",
+    actor: `admin:${adminEmail}`,
+  });
+  revalidatePath(`/clients/${clientId}`);
+}
+
 // Permanently delete a client and everything keyed to it (onboarding_state,
 // activity_log, ads_report_cache, weekly_reports all cascade on delete). Admin
 // only. Does NOT cancel any Stripe subscription — that's a separate action.
