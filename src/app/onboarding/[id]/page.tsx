@@ -6,8 +6,6 @@
 import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import {
-  getTier,
-  tierName,
   CUSTOM_PLAN_NAME,
   planBlurb,
   planFeatures,
@@ -195,14 +193,8 @@ export default async function OnboardingPage({
     }
   }
 
-  const tier = getTier(client.service_tier);
-  const price = client.custom_monthly_price ?? tier?.monthlyPrice ?? 0;
-  const planName = client.custom_monthly_price
-    ? CUSTOM_PLAN_NAME
-    : tier
-      ? tierName(tier)
-      : null;
-  const isCustom = !!client.custom_monthly_price;
+  const price = client.custom_monthly_price ?? 0;
+  const planName = CUSTOM_PLAN_NAME;
   const displayStep =
     step === "contract" && !state?.details_confirmed ? "details" : step;
 
@@ -216,7 +208,6 @@ export default async function OnboardingPage({
             id={id}
             planName={planName}
             price={price}
-            isCustom={isCustom}
             platforms={client.platforms}
             signingUrl={signingUrl}
           />
@@ -226,7 +217,6 @@ export default async function OnboardingPage({
             id={id}
             planName={planName}
             price={price}
-            isCustom={isCustom}
             platforms={client.platforms}
           />
         )}
@@ -751,14 +741,12 @@ function ContractStep({
   id,
   planName,
   price,
-  isCustom,
   platforms,
   signingUrl,
 }: {
   id: string;
-  planName: string | null;
+  planName: string;
   price: number;
-  isCustom: boolean;
   platforms: string[] | null;
   signingUrl: string | null;
 }) {
@@ -788,7 +776,7 @@ function ContractStep({
       <p className="mt-1 text-sm text-zinc-500">
         Here&rsquo;s the plan we agreed — generate your agreement to sign online.
       </p>
-      <QuoteSummary planName={planName} price={price} isCustom={isCustom} platforms={platforms} />
+      <QuoteSummary planName={planName} price={price} platforms={platforms} />
       <form action={generateContract.bind(null, id)} className="mt-6">
         <SubmitButton>Generate &amp; sign your agreement</SubmitButton>
       </form>
@@ -804,13 +792,11 @@ function PaymentStep({
   id,
   planName,
   price,
-  isCustom,
   platforms,
 }: {
   id: string;
-  planName: string | null;
+  planName: string;
   price: number;
-  isCustom: boolean;
   platforms: string[] | null;
 }) {
   return (
@@ -820,7 +806,7 @@ function PaymentStep({
         Billed today, then on the same date each month — cancel anytime with 31
         days&rsquo; notice.
       </p>
-      <QuoteSummary planName={planName} price={price} isCustom={isCustom} platforms={platforms} />
+      <QuoteSummary planName={planName} price={price} platforms={platforms} />
       <p className="mt-6 text-xs text-zinc-400">
         You&rsquo;ll be taken to Stripe&rsquo;s secure checkout to enter your
         payment details.
@@ -835,15 +821,13 @@ function PaymentStep({
 function QuoteSummary({
   planName,
   price,
-  isCustom,
   platforms,
 }: {
-  planName: string | null;
+  planName: string;
   price: number;
-  isCustom: boolean;
   platforms: string[] | null;
 }) {
-  if (!planName || !price) {
+  if (!price) {
     return (
       <div className="mt-6 rounded-md bg-zinc-100 p-4 text-sm text-zinc-500">
         No plan configured.
@@ -855,15 +839,13 @@ function QuoteSummary({
       <div className="flex items-baseline justify-between gap-4">
         <span className="font-semibold text-zinc-900">
           {planName}
-          {isCustom && (
-            <span className="ml-2 text-xs font-normal text-zinc-400">(agreed pricing)</span>
-          )}
+          <span className="ml-2 text-xs font-normal text-zinc-400">(agreed pricing)</span>
         </span>
         <span className="shrink-0 text-sm text-zinc-500">{formatMoney(price)}/mo</span>
       </div>
-      <p className="mt-1 text-sm text-zinc-500">{planBlurb(platforms, isCustom)}</p>
+      <p className="mt-1 text-sm text-zinc-500">{planBlurb(platforms)}</p>
       <ul className="mt-3 space-y-1 text-sm text-zinc-600">
-        {planFeatures(platforms, isCustom).map((f) => (
+        {planFeatures(platforms).map((f) => (
           <li key={f} className="flex items-start gap-2">
             <span className="mt-0.5 text-emerald-500">✓</span>
             {f}

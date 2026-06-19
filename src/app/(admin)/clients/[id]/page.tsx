@@ -3,7 +3,7 @@
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { getTier, tierNameFor } from "@/lib/tiers";
+import { CUSTOM_PLAN_NAME } from "@/lib/tiers";
 import { ACCESS_TASKS, isAccessTaskKey } from "@/lib/access-tasks";
 import { formatMoney } from "@/lib/config";
 import { CopyButton } from "@/components/CopyButton";
@@ -77,14 +77,12 @@ export default async function ClientDetailPage({
     .eq("client_id", id)
     .order("created_at", { ascending: false });
 
-  const tier = getTier(client.service_tier);
-
   const h = await headers();
   const host = h.get("host") ?? "localhost:3000";
   const proto = host.startsWith("localhost") ? "http" : "https";
   const onboardingUrl = `${proto}://${host}/onboarding/${id}`;
 
-  const price = client.custom_monthly_price ?? tier?.monthlyPrice ?? null;
+  const price = client.custom_monthly_price ?? null;
   const questionnaire =
     (state?.questionnaire_data as Record<string, unknown> | null) ?? null;
   const hasAnswers =
@@ -153,17 +151,14 @@ export default async function ClientDetailPage({
           <dl className="mt-4 space-y-2 text-sm">
             <Row label="Contact" value={client.contact_name || "—"} />
             <Row label="Email" value={client.contact_email} />
-            <Row label="Tier" value={tierNameFor(client.service_tier) ?? "—"} />
+            <Row label="Plan" value={price !== null ? CUSTOM_PLAN_NAME : "—"} />
             <Row
               label="Platforms"
               value={(client.platforms as string[] | null)?.join(", ") || "—"}
             />
             {price !== null && (
               <>
-                <Row
-                  label="Monthly"
-                  value={`${formatMoney(price)}/mo${client.custom_monthly_price ? " (custom)" : ""}`}
-                />
+                <Row label="Monthly" value={`${formatMoney(price)}/mo`} />
                 <Row label="Billing" value="Monthly rolling (31-day notice)" />
               </>
             )}
