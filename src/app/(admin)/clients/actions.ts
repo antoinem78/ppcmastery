@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { requireAgencyAdmin } from "@/lib/auth/guard";
 import { logActivity } from "@/lib/activity";
-import { getTier, CUSTOM_TIER_KEY } from "@/lib/tiers";
+import { CUSTOM_TIER_KEY } from "@/lib/tiers";
 
 // Create a client record + its onboarding state, then jump to the client page
 // (where the shareable onboarding link lives). Admin-only.
@@ -15,25 +15,17 @@ export async function createClient(formData: FormData): Promise<void> {
   const companyName = String(formData.get("company_name") ?? "").trim();
   const contactName = String(formData.get("contact_name") ?? "").trim();
   const contactEmail = String(formData.get("contact_email") ?? "").trim();
-  const serviceTier = String(formData.get("service_tier") ?? "").trim();
   const customPriceRaw = String(formData.get("custom_monthly_price") ?? "").trim();
 
-  const isCustomPlan = serviceTier === CUSTOM_TIER_KEY;
-  if (!companyName || !contactEmail || (!getTier(serviceTier) && !isCustomPlan)) {
-    throw new Error("Company name, contact email, and a valid tier are required.");
+  if (!companyName || !contactEmail) {
+    throw new Error("Company name and contact email are required.");
   }
 
-  // Negotiated price (whole units): required for the custom plan, optional
-  // override for band tiers.
-  let customPrice: number | null = null;
-  if (customPriceRaw) {
-    customPrice = Math.round(Number(customPriceRaw));
-    if (!Number.isFinite(customPrice) || customPrice <= 0) {
-      throw new Error("Custom monthly price must be a positive number.");
-    }
-  }
-  if (isCustomPlan && !customPrice) {
-    throw new Error("The custom plan requires a custom monthly price.");
+  // Every MaaS quote is bespoke — a custom monthly price (whole units) is
+  // required; there are no preset tiers.
+  const customPrice = Math.round(Number(customPriceRaw));
+  if (!customPriceRaw || !Number.isFinite(customPrice) || customPrice <= 0) {
+    throw new Error("A positive monthly price is required.");
   }
 
   const platforms = formData.getAll("platforms").map(String);
@@ -54,7 +46,7 @@ export async function createClient(formData: FormData): Promise<void> {
       company_name: companyName,
       contact_name: contactName || null,
       contact_email: contactEmail,
-      service_tier: serviceTier,
+      service_tier: CUSTOM_TIER_KEY,
       custom_monthly_price: customPrice,
       platforms,
       access_tasks: accessTasks,
@@ -82,7 +74,6 @@ export async function createClient(formData: FormData): Promise<void> {
     actor: `admin:${adminEmail}`,
     payload: {
       company_name: companyName,
-      service_tier: serviceTier,
       custom_monthly_price: customPrice,
     },
   });

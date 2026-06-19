@@ -1,12 +1,11 @@
 // Client book — the list of all clients. Built to stay usable at scale (the MCC
 // Command Center can hold 100+ accounts): name search + a Google Ads ID column,
-// and a source-aware "Type" (service tier for funnel clients, "Reporting" for
+// and a source-aware "Type" (monthly price for funnel clients, "Reporting" for
 // managed accounts).
 import Link from "next/link";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { tierNameFor } from "@/lib/tiers";
 import { StatusBadge } from "@/components/StatusBadge";
-import { entityConfig } from "@/lib/config";
+import { entityConfig, formatMoney } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +26,7 @@ export default async function ClientsPage({
   let sel = supabase
     .from("clients")
     .select(
-      "id, company_name, contact_email, status, service_tier, source, created_at, onboarding_state(google_ads_customer_id, google_ads_reporting_customer_id)",
+      "id, company_name, contact_email, status, custom_monthly_price, source, created_at, onboarding_state(google_ads_customer_id, google_ads_reporting_customer_id)",
     )
     .order("created_at", { ascending: false });
   if (query) sel = sel.ilike("company_name", `%${query}%`);
@@ -142,7 +141,9 @@ export default async function ClientsPage({
                 const type =
                   c.source === "reporting_only"
                     ? "Reporting"
-                    : (tierNameFor(c.service_tier) ?? "—");
+                    : c.custom_monthly_price != null
+                      ? `${formatMoney(c.custom_monthly_price)}/mo`
+                      : "—";
                 return (
                   <tr key={c.id} className="hover:bg-zinc-50">
                     <td className="px-5 py-3">

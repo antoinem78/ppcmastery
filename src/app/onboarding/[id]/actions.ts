@@ -92,24 +92,16 @@ export async function generateContract(clientId: string): Promise<void> {
       .single();
     if (!client) throw new Error("Client not found.");
 
-    // Custom price (or custom plan) → client-facing name is the neutral
-    // "custom plan"; otherwise the band tier name + band price.
-    const { getTier, tierName, CUSTOM_PLAN_NAME, channelsLabel } = await import(
-      "@/lib/tiers"
-    );
-    const tier = getTier(client.service_tier);
-    const price = client.custom_monthly_price ?? tier?.monthlyPrice;
-    const name = client.custom_monthly_price
-      ? CUSTOM_PLAN_NAME
-      : tier
-        ? tierName(tier)
-        : null;
-    if (!name || !price) {
-      throw new Error("Client has no valid plan/price configured.");
+    // Every quote is bespoke: the client-facing plan name + their negotiated
+    // monthly price.
+    const { CUSTOM_PLAN_NAME, channelsLabel } = await import("@/lib/tiers");
+    const price = client.custom_monthly_price;
+    if (!price) {
+      throw new Error("Client has no monthly price configured.");
     }
 
     const documentId = await createContractDocument(client, {
-      name,
+      name: CUSTOM_PLAN_NAME,
       price,
       channels: channelsLabel(client.platforms),
     });

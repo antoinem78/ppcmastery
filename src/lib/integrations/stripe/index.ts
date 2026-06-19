@@ -9,7 +9,7 @@ import Stripe from "stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity";
 import { entityConfig } from "@/lib/config";
-import { getTier, tierName, CUSTOM_PLAN_NAME, type Tier } from "@/lib/tiers";
+import { CUSTOM_PLAN_NAME } from "@/lib/tiers";
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -20,47 +20,26 @@ function getStripe(): Stripe {
 }
 
 /**
- * Find the Stripe Price for a tier via its lookup_key (= tier key, e.g.
- * "ps-5k"). Prices are seeded by scripts/seed-stripe-prices.mjs; if one is
- * missing we fail loudly rather than charging a wrong amount.
- */
-async function getPriceIdForTier(tier: Tier): Promise<string> {
-  const stripe = getStripe();
-  const prices = await stripe.prices.list({
-    lookup_keys: [tier.key],
-    active: true,
-    limit: 1,
-  });
-  const price = prices.data[0];
-  if (!price) {
-    throw new Error(
-      `No Stripe price found for tier "${tier.key}". Run scripts/seed-stripe-prices.mjs.`,
-    );
-  }
-  return price.id;
-}
-
-/**
- * Create a Stripe Checkout session for the client's configured tier — or, for
- * negotiated deals, their custom monthly price (ad-hoc price, same product
- * naming, still a monthly subscription anchored at signup).
+ * Create a Stripe Checkout session for the client's bespoke monthly price — an
+ * ad-hoc subscription price (no pre-seeded products), so nothing is written
+ * into the shared Stripe catalogue. Anchored monthly at signup.
  */
 export async function createCheckoutSessionForClient(client: {
   id: string;
   contact_email: string;
-  service_tier: string | null;
   custom_monthly_price?: number | null;
 }): Promise<string> {
-  const tier = getTier(client.service_tier);
-  if (!tier && !client.custom_monthly_price) {
-    throw new Error("Client has no valid service tier or custom price configured.");
+  if (!client.custom_monthly_price || client.custom_monthly_price <= 0) {
+    throw new Error("Client has no monthly price configured.");
   }
 
   const stripe = getStripe();
   const base = process.env.APP_BASE_URL ?? "http://localhost:3000";
 
-  const lineItem = client.custom_monthly_price
-    ? {
+  const session = await stripe.checkout.sessions.create({
+    mode: "subscription",
+    line_items: [
+      {
         price_data: {
           currency: entityConfig.currency.toLowerCase(),
           unit_amount: client.custom_monthly_price * 100,
@@ -68,12 +47,8 @@ export async function createCheckoutSessionForClient(client: {
           product_data: { name: CUSTOM_PLAN_NAME },
         },
         quantity: 1,
-      }
-    : { price: await getPriceIdForTier(tier!), quantity: 1 };
-
-  const session = await stripe.checkout.sessions.create({
-    mode: "subscription",
-    line_items: [lineItem],
+      },
+    ],
     customer_email: client.contact_email,
     client_reference_id: client.id,
     metadata: { client_id: client.id },
@@ -303,29 +278,4 @@ export function constructWebhookEvent(
     throw new Error("STRIPE_WEBHOOK_SECRET is not configured.");
   }
   return getStripe().webhooks.constructEvent(rawBody, signature, secret);
-}
-
-/** Seed/repair the per-tier products & prices. Used by the seed script. */
-export async function ensureTierPrice(tier: Tier): Promise<string> {
-  const stripe = getStripe();
-  const existing = await stripe.prices.list({
-    lookup_keys: [tier.key],
-    active: true,
-    limit: 1,
-  });
-  if (existing.data[0]) return existing.data[0].id;
-
-  const product = await stripe.products.create({
-    name: tierName(tier),
-    metadata: { tier_key: tier.key },
-  });
-  const price = await stripe.prices.create({
-    product: product.id,
-    unit_amount: tier.monthlyPrice * 100,
-    currency: entityConfig.currency.toLowerCase(),
-    recurring: { interval: "month" },
-    lookup_key: tier.key,
-    metadata: { tier_key: tier.key },
-  });
-  return price.id;
 }
