@@ -76,7 +76,11 @@ tenant code is written. Paperwork early; code on demand.
 - Tenant self-serve signup + provisioning (no manual link-send)
 - Connect-your-own Stripe / PandaDoc / DocuSign / Slack (credential UI)
 - Self-serve branding / logo / theming engine
-- Plan tiers enforced at the billing + feature-gate layer
+- Plan tiers / spend-band pricing catalogue. **Removed from the MaaS June 2026**
+  — every MaaS quote is bespoke (a custom monthly price per client), so the
+  locked self-serve tiers (ps-1k…ps-20k, $99–$599) were deleted along with the
+  Stripe price-seeding. Tiered, pre-seeded pricing is a self-serve SaaS concept;
+  it returns only if/when the SaaS does. (Was in src/lib/tiers.ts + seed script.)
 - Multi-tenant Google Ads OAuth credential isolation (per-tenant refresh
   tokens)
 - In-app multi-entity / per-client billing routing (only if ever needed)
