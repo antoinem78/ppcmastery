@@ -56,6 +56,20 @@ export async function GET(request: Request) {
     const q = onlyCompany.toLowerCase();
     clients = clients.filter((r) => companyOf(r).toLowerCase().includes(q));
   }
+
+  // Dry-run roster: ?list=1 returns the eligible accounts (after any filter)
+  // WITHOUT generating reports or posting to Slack — for discovering exact
+  // names / confirming an account is in the approved+linked set.
+  if (url.searchParams.get("list") === "1") {
+    return NextResponse.json({
+      total: clients.length,
+      accounts: clients.map((r) => ({
+        clientId: r.client_id,
+        company: companyOf(r),
+        customerId: r.google_ads_customer_id,
+      })),
+    });
+  }
   const base = process.env.APP_BASE_URL ?? "https://ppcmastery.vercel.app";
   const reviewChannel = process.env.SLACK_REVIEW_CHANNEL;
   const slackOn = !!process.env.SLACK_BOT_TOKEN && !!reviewChannel;
