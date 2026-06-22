@@ -40,7 +40,22 @@ export async function GET(request: Request) {
     .eq("ad_link_status", "approved")
     .not("google_ads_customer_id", "is", null);
 
-  const clients = rows ?? [];
+  // Optional single-account filter for one-off test runs (no spam): pass
+  // ?clientId=<uuid> (exact) or ?company=<substring> (case-insensitive). With
+  // neither, the full book runs (the scheduled behaviour).
+  const url = new URL(request.url);
+  const onlyClientId = url.searchParams.get("clientId");
+  const onlyCompany = url.searchParams.get("company");
+  const companyOf = (r: { clients?: unknown }) =>
+    (r.clients as unknown as { company_name?: string } | null)?.company_name ?? "";
+
+  let clients = rows ?? [];
+  if (onlyClientId) {
+    clients = clients.filter((r) => r.client_id === onlyClientId);
+  } else if (onlyCompany) {
+    const q = onlyCompany.toLowerCase();
+    clients = clients.filter((r) => companyOf(r).toLowerCase().includes(q));
+  }
   const base = process.env.APP_BASE_URL ?? "https://ppcmastery.vercel.app";
   const reviewChannel = process.env.SLACK_REVIEW_CHANNEL;
   const slackOn = !!process.env.SLACK_BOT_TOKEN && !!reviewChannel;
@@ -127,5 +142,11 @@ export async function GET(request: Request) {
     }),
   );
 
-  return NextResponse.json({ clients: clients.length, sent, failed });
+  const filtered = !!(onlyClientId || onlyCompany);
+  return NextResponse.json({
+    clients: clients.length,
+    sent,
+    failed,
+    ...(filtered ? { matched: clients.map(companyOf) } : {}),
+  });
 }
