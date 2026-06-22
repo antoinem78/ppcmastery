@@ -39,9 +39,10 @@ function factsBlock(
     `Account: ${companyName}`,
     `Currency: ${p.currency}`,
     `Reporting period: ${w.start} to ${w.end} (the last 7 days), compared with the 7 days before it.`,
-    `Search campaigns only. Removed campaigns excluded.`,
+    `Scope: ALL campaign types (Search, Performance Max, Demand Gen, Shopping, etc.). Removed campaigns excluded.`,
+    `Conversions are counted by ${p.convByConversionDate ? "conversion date (conversions that happened this week)" : "interaction date"}.`,
     ``,
-    `HEADLINE (this week vs prior week):`,
+    `ACCOUNT HEADLINE (all channels, this week vs prior week):`,
     `- Spend: ${money(w.spend.value)} (${deltaPhrase(w.spend)})`,
     `- Conversions: ${dec(w.conversions.value)} (${deltaPhrase(w.conversions)})`,
     `- Cost per conversion: ${money(k.costPerConv.value, 2)} (${deltaPhrase(k.costPerConv)})`,
@@ -49,8 +50,18 @@ function factsBlock(
     `- Impressions: ${dec(k.impressions.value, 0)} (${deltaPhrase(k.impressions)})`,
     `- Click-through rate: ${dec(k.ctr.value)}% (${deltaPhrase(k.ctr)})`,
     `- Average CPC: ${money(k.avgCpc.value, 2)} (${deltaPhrase(k.avgCpc)})`,
-    `- Search impression share: ${dec(k.searchImprShare.value)}%`,
+    `- Search impression share: ${dec(k.searchImprShare.value)}% (SEARCH CAMPAIGNS ONLY)`,
   ];
+
+  const byChannel = p.byChannel ?? [];
+  if (byChannel.length > 1) {
+    lines.push(``, `PERFORMANCE BY CHANNEL THIS WEEK (spend / conversions):`);
+    for (const c of byChannel) {
+      lines.push(
+        `- ${c.channel}: spend ${money(c.spend)}, ${dec(c.conversions)} conversions, ${money(c.costPerConv, 2)}/conv`,
+      );
+    }
+  }
 
   if (p.hasConversionValue) {
     lines.push(
@@ -63,15 +74,16 @@ function factsBlock(
     );
   }
 
+  const ch = (c: { channel?: string }) => (c.channel ? ` [${c.channel}]` : "");
   const converting = p.byCampaign
     .filter((c) => c.conversions > 0)
     .sort((a, b) => b.conversions - a.conversions)
     .slice(0, 5);
   if (converting.length) {
-    lines.push(``, `TOP CONVERTING CAMPAIGNS THIS WEEK (ranked by conversions):`);
+    lines.push(``, `TOP CONVERTING CAMPAIGNS THIS WEEK (ranked by conversions; channel in brackets):`);
     for (const c of converting) {
       lines.push(
-        `- ${c.name}: ${dec(c.conversions)} conversions, spend ${money(c.spend)}, ${money(c.costPerConv, 2)}/conv`,
+        `- ${c.name}${ch(c)}: ${dec(c.conversions)} conversions, spend ${money(c.spend)}, ${money(c.costPerConv, 2)}/conv`,
       );
     }
   } else {
@@ -79,15 +91,15 @@ function factsBlock(
   }
 
   if (p.byCampaign.length) {
-    lines.push(``, `ALL CAMPAIGNS THIS WEEK (by spend):`);
+    lines.push(``, `TOP CAMPAIGNS THIS WEEK (by spend; channel in brackets):`);
     for (const c of p.byCampaign.slice(0, 8)) {
       lines.push(
-        `- ${c.name}: spend ${money(c.spend)}, ${dec(c.conversions)} conversions, ${money(c.costPerConv, 2)}/conv`,
+        `- ${c.name}${ch(c)}: spend ${money(c.spend)}, ${dec(c.conversions)} conversions, ${money(c.costPerConv, 2)}/conv`,
       );
     }
   }
   if (p.topSearchTerms.length) {
-    lines.push(``, `TOP SEARCH TERMS THIS WEEK (by spend):`);
+    lines.push(``, `TOP SEARCH TERMS THIS WEEK (by spend; SEARCH CAMPAIGNS ONLY):`);
     for (const t of p.topSearchTerms.slice(0, 6)) {
       lines.push(`- "${t.term}": spend ${money(t.spend)}, ${dec(t.conversions)} conversions`);
     }
@@ -124,7 +136,10 @@ HARD RULES:
 - Use ONLY the figures in the DATA block. Never invent, estimate, or recompute a number, a percentage, a campaign name, or a metric not present in the data.
 - Quote figures exactly as given (same currency, same rounding).
 - If conversion-value tracking is absent, never mention revenue or ROAS.
-- Optimisations: describe ONLY the changes in the change log. You may add a brief, conservative rationale (e.g. "to consolidate budget", "to improve lead quality") and reference the campaign by name, but never claim a specific result or number that isn't in the data.
+- CHANNELS: the account spans multiple campaign types (Search, Performance Max, Demand Gen, Shopping, Display, Video). The headline figures are ACCOUNT-WIDE across all of them. Use channel-appropriate language: only Search campaigns have "keywords" and "search terms". For Performance Max / Demand Gen / Shopping, talk about assets, audiences, product/listing groups and creatives — NEVER call their changes "keywords". A change tagged "[Performance Max]" or "[Demand Gen]" did NOT happen in a Search campaign.
+- Any metric explicitly labelled "SEARCH CAMPAIGNS ONLY" (search impression share, top search terms) covers only Search — never present it as an account-wide figure.
+- FOCUS: lead with the campaigns and channels that actually drove spend and conversions this week (the data is already ranked). Do not enumerate every campaign or every change. For a complex account, stay high-level — summarise the few that matter rather than listing everything.
+- Optimisations: describe ONLY the changes in the change log, respecting the campaign name AND channel shown. You may add a brief, conservative rationale (e.g. "to consolidate budget", "to improve lead quality"), but never claim a specific result or number that isn't in the data.
 - Keep it grounded. If the week is quiet or the data is thin, keep each section short — do not pad. If a section has no data, write one honest line rather than inventing content.
 - This is a DRAFT a human reviews before it reaches the client.
 

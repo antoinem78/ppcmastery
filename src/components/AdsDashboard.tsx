@@ -1,6 +1,7 @@
 // Google Ads performance dashboard (Phase 6.1, redesigned). Premium, agency-grade
 // client view — verified payload from the reporting data layer. Account currency,
-// Search campaigns only. Server-rendered, inline SVG, no client JS.
+// all campaign types (search impression share + search terms stay search-only and
+// are labelled as such). Server-rendered, inline SVG, no client JS.
 import type { DashboardPayload, Kpi } from "@/lib/integrations/google-ads/reporting";
 import { REPORT_WINDOWS } from "@/lib/integrations/google-ads/reporting";
 
@@ -44,7 +45,7 @@ export function AdsDashboard({
         <div>
           <h2 className="text-base font-semibold text-white">Performance</h2>
           <p className="text-xs text-white/60">
-            Search campaigns · {payload.range.start} → {payload.range.end} ·{" "}
+            All campaigns · {payload.range.start} → {payload.range.end} ·{" "}
             {payload.currency}
           </p>
         </div>
@@ -103,6 +104,22 @@ export function AdsDashboard({
 
         {/* Breakdowns */}
         <div className="mt-7 grid gap-6 lg:grid-cols-3">
+          {(payload.byChannel ?? []).length > 1 && (
+            <Breakdown
+              title="By channel"
+              cols={["Channel", "Spend", "Conv.", ...(guard ? ["ROAS"] : ["Cost/conv."])]}
+              rows={(payload.byChannel ?? []).map((c) => ({
+                label: c.channel,
+                spend: c.spend,
+                cells: [
+                  money(c.spend),
+                  dec(c.conversions),
+                  guard ? `${dec(c.roas, 2)}×` : money(c.costPerConv, 2),
+                ],
+              }))}
+              maxSpend={Math.max(...(payload.byChannel ?? []).map((c) => c.spend), 1)}
+            />
+          )}
           <Breakdown
             title="By campaign"
             cols={["Campaign", "Spend", "Conv.", ...(guard ? ["ROAS"] : ["Cost/conv."])]}
