@@ -188,7 +188,10 @@ export async function markContractSigned(
     .select("contract_status")
     .eq("client_id", clientId)
     .single();
-  if (!state) throw new Error(`No onboarding state for client ${clientId}.`);
+  // Shared PandaDoc account across two portals: this endpoint receives the other
+  // deployment's document events too. Unknown client = not ours → no-op (don't
+  // throw, or PandaDoc retries the foreign event).
+  if (!state) return { alreadyDone: true };
   if (state.contract_status === "signed") return { alreadyDone: true };
 
   const { error } = await supabase

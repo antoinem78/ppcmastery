@@ -79,7 +79,11 @@ export async function finalizePaidClient(params: {
     .select("payment_status")
     .eq("client_id", params.clientId)
     .single();
-  if (!state) throw new Error(`No onboarding state for client ${params.clientId}.`);
+  // Shared Stripe account across two portals (PPC Mastery + BJ Command Center):
+  // each webhook endpoint receives the OTHER deployment's events. If this client
+  // isn't in THIS database it belongs to the other portal — no-op (don't throw,
+  // or Stripe retries the foreign event forever).
+  if (!state) return { alreadyDone: true };
   if (state.payment_status === "paid") return { alreadyDone: true };
 
   // Payment is the hinge: past it, the client sees the home/checklist (driven
