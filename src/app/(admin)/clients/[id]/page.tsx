@@ -16,6 +16,7 @@ import {
   deleteClient,
   cancelClientSubscription,
   resumeClientSubscription,
+  markPaidManually,
 } from "../actions";
 import {
   getDashboard,
@@ -123,6 +124,14 @@ export default async function ClientDetailPage({
   const journeyDone = journey.filter((j) => j.done).length;
   const journeyPct = Math.round((journeyDone / journey.length) * 100);
 
+  // Default the bank-transfer contract start to the 1st of next month.
+  const now = new Date();
+  const firstOfNextMonth = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+  )
+    .toISOString()
+    .slice(0, 10);
+
   // Performance dashboard once the Google Ads link is active (cached, guarded).
   let dashboard: DashboardPayload | null = null;
   const adApproved =
@@ -161,6 +170,16 @@ export default async function ClientDetailPage({
                 <Row label="Monthly" value={`${formatMoney(price)}/mo`} />
                 <Row label="Billing" value="Monthly rolling (31-day notice)" />
               </>
+            )}
+            {state?.service_start_date && (
+              <Row
+                label="Contract start"
+                value={new Date(state.service_start_date).toLocaleDateString("en-IE", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}
+              />
             )}
             {state?.slack_invite_email && (
               <Row label="Slack invite" value={state.slack_invite_email} />
@@ -245,6 +264,44 @@ export default async function ClientDetailPage({
               Send this to the prospect. Anyone with the link can complete the wizard.
             </p>
           </div>
+
+          {state && state.payment_status !== "paid" && (
+            <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <div className="text-sm font-medium text-amber-800">Paid by bank transfer?</div>
+              <p className="mt-1 text-xs text-amber-700">
+                Mark this client paid without Stripe — unlocks onboarding immediately.
+              </p>
+              <form action={markPaidManually} className="mt-3 space-y-3">
+                <input type="hidden" name="client_id" value={id} />
+                <div className="flex flex-wrap gap-3">
+                  <label className="block text-xs">
+                    <span className="mb-1 block font-medium text-amber-800">Contract start date</span>
+                    <input
+                      type="date"
+                      name="start_date"
+                      defaultValue={firstOfNextMonth}
+                      className="rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-zinc-800"
+                    />
+                  </label>
+                  <label className="block text-xs">
+                    <span className="mb-1 block font-medium text-amber-800">Reference (optional)</span>
+                    <input
+                      type="text"
+                      name="reference"
+                      placeholder="e.g. transfer ref"
+                      className="rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-zinc-800"
+                    />
+                  </label>
+                </div>
+                <ConfirmSubmitButton
+                  message={`Mark ${client.company_name} as paid by bank transfer? This unlocks onboarding without Stripe.`}
+                  className="rounded-md border border-amber-400 bg-white px-4 py-2 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-100"
+                >
+                  Mark as paid (bank transfer)
+                </ConfirmSubmitButton>
+              </form>
+            </div>
+          )}
           </>
           )}
         </section>

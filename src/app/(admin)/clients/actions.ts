@@ -234,6 +234,52 @@ export async function refreshGoogleAdsLinkStatus(clientId: string): Promise<void
   revalidatePath(`/onboarding/${clientId}`);
 }
 
+// Mark a client paid by bank transfer — unlocks onboarding identically to the
+// Stripe success path (which sets payment_status:"paid", current_step:"complete"),
+// without invoking Stripe. Optional contract start date for the bank-transfer
+// client (blank => starts today). Admin-only.
+export async function markPaidManually(formData: FormData): Promise<void> {
+  const { email: adminEmail } = await requireAgencyAdmin();
+  const clientId = String(formData.get("client_id") ?? "").trim();
+  const reference = String(formData.get("reference") ?? "").trim();
+  const startDateRaw = String(formData.get("start_date") ?? "").trim();
+  if (!clientId) throw new Error("Missing client id.");
+
+  let serviceStartDate: string | null = null;
+  if (startDateRaw) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDateRaw) || Number.isNaN(Date.parse(startDateRaw)))
+      throw new Error("Contract start date must be a valid date (YYYY-MM-DD).");
+    serviceStartDate = startDateRaw;
+  }
+
+  const supabase = createSupabaseAdminClient();
+  const { data: state } = await supabase
+    .from("onboarding_state")
+    .select("payment_status")
+    .eq("client_id", clientId)
+    .single();
+  if (state?.payment_status === "paid") {
+    revalidatePath(`/clients/${clientId}`);
+    return; // already paid — no double-record
+  }
+
+  const { error } = await supabase
+    .from("onboarding_state")
+    .update({ payment_status: "paid", current_step: "complete", service_start_date: serviceStartDate })
+    .eq("client_id", clientId);
+  if (error) throw new Error(error.message);
+
+  await logActivity({
+    clientId,
+    eventType: "payment_marked_manual",
+    actor: `admin:${adminEmail}`,
+    payload: { method: "bank_transfer", reference: reference || null, service_start_date: serviceStartDate },
+  });
+
+  revalidatePath(`/clients/${clientId}`);
+  revalidatePath(`/onboarding/${clientId}`);
+}
+
 // Schedule the client's subscription for cancellation with 31 days' notice.
 // Admin-only. The final renewal inside the notice window still bills.
 export async function cancelClientSubscription(clientId: string): Promise<void> {

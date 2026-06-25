@@ -77,6 +77,7 @@ create table onboarding_state (
   assets_drive_link  text,                                      -- 0007
   google_ads_reporting_customer_id text,                        -- 0010
   microsoft_ads_account_id text,                                -- 0012
+  service_start_date date,                                      -- 0014
   updated_at         timestamptz not null default now()
 );
 
