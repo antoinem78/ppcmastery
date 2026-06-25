@@ -35,7 +35,8 @@ import { AdsDashboard } from "@/components/AdsDashboard";
 
 function parseRange(raw: string | undefined): ReportWindow {
   const n = Number(raw);
-  return n === 7 || n === 90 ? n : 28;
+  // Default to the 7-day "Week" — this is a weekly report tool; 28d misleads.
+  return n === 28 || n === 90 ? n : 7;
 }
 import { finalizeFromCheckoutSession } from "@/lib/integrations/stripe";
 import {

@@ -127,10 +127,10 @@ export function AdsDashboard({
           <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
             Daily spend &amp; conversions
           </h3>
-          <TrendChart trend={payload.trend} />
+          <TrendChart trend={payload.trend} currency={payload.currency} />
           <div className="mt-2 flex gap-4 text-xs text-zinc-500">
-            <Legend color="#0B1F3A" label={`Spend (${payload.currency})`} />
-            <Legend color="#10b981" label="Conversions" />
+            <Legend color="#0B1F3A" label="Spend — line (left axis)" />
+            <Legend color="#10b981" label="Conversions/day — bars (right axis)" />
           </div>
         </div>
 
@@ -308,39 +308,78 @@ function Legend({ color, label }: { color: string; label: string }) {
   );
 }
 
-function TrendChart({ trend }: { trend: { date: string; spend: number; conversions: number }[] }) {
+// Dual-axis: conversions/day as scaled bars (right axis), spend as a line
+// (left axis). Both axes are labelled so the magnitudes are readable.
+function TrendChart({
+  trend,
+  currency,
+}: {
+  trend: { date: string; spend: number; conversions: number }[];
+  currency: string;
+}) {
   if (trend.length < 2) {
     return <p className="mt-2 text-sm text-zinc-400">Not enough data to chart yet.</p>;
   }
-  const W = 760, H = 180, P = 10;
+  const W = 760, H = 220, ML = 56, MR = 48, MT = 12, MB = 28;
+  const plotW = W - ML - MR;
+  const plotH = H - MT - MB;
+  const n = trend.length;
   const maxSpend = Math.max(...trend.map((t) => t.spend), 1);
   const maxConv = Math.max(...trend.map((t) => t.conversions), 1);
-  const x = (i: number) => P + (i * (W - 2 * P)) / (trend.length - 1);
-  const ys = (v: number) => H - P - (v / maxSpend) * (H - 2 * P);
-  const yc = (v: number) => H - P - (v / maxConv) * (H - 2 * P);
-  const spendPts = trend.map((t, i) => `${x(i)},${ys(t.spend)}`).join(" ");
-  const convPts = trend.map((t, i) => `${x(i)},${yc(t.conversions)}`).join(" ");
-  const area = `${P},${H - P} ${spendPts} ${x(trend.length - 1)},${H - P}`;
+  const band = plotW / n;
+  const barW = Math.max(2, band * 0.55);
+  const xc = (i: number) => ML + band * i + band / 2;
+  const ySpend = (v: number) => MT + plotH - (v / maxSpend) * plotH;
+  const spendPts = trend.map((t, i) => `${xc(i)},${ySpend(t.spend)}`).join(" ");
+  const fracs = [0, 0.5, 1];
+  const moneyAxis = (v: number) =>
+    new Intl.NumberFormat("en", {
+      style: "currency",
+      currency,
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(v);
+  const convAxis = (v: number) => new Intl.NumberFormat("en", { maximumFractionDigits: 0 }).format(v);
   return (
     <div className="mt-2">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="spendFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#0B1F3A" stopOpacity="0.18" />
-            <stop offset="100%" stopColor="#0B1F3A" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[0.25, 0.5, 0.75].map((g) => (
-          <line key={g} x1={P} x2={W - P} y1={P + g * (H - 2 * P)} y2={P + g * (H - 2 * P)} stroke="#f1f5f9" strokeWidth="1" />
-        ))}
-        <polygon points={area} fill="url(#spendFill)" />
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+        {fracs.map((f) => {
+          const y = MT + plotH - f * plotH;
+          return (
+            <g key={f}>
+              <line x1={ML} x2={W - MR} y1={y} y2={y} stroke="#f1f5f9" strokeWidth="1" />
+              <text x={ML - 6} y={y + 3} textAnchor="end" className="fill-zinc-400" fontSize="10">
+                {moneyAxis(maxSpend * f)}
+              </text>
+              <text x={W - MR + 6} y={y + 3} textAnchor="start" className="fill-emerald-500" fontSize="10">
+                {convAxis(maxConv * f)}
+              </text>
+            </g>
+          );
+        })}
+        {trend.map((t, i) => {
+          const h = (t.conversions / maxConv) * plotH;
+          return (
+            <rect
+              key={i}
+              x={xc(i) - barW / 2}
+              y={MT + plotH - h}
+              width={barW}
+              height={Math.max(0, h)}
+              rx="1"
+              fill="#10b981"
+              opacity="0.85"
+            />
+          );
+        })}
         <polyline fill="none" stroke="#0B1F3A" strokeWidth="2.5" points={spendPts} />
-        <polyline fill="none" stroke="#10b981" strokeWidth="2" strokeDasharray="1 0" points={convPts} />
+        <text x={ML} y={H - 8} textAnchor="start" className="fill-zinc-400" fontSize="10">
+          {trend[0].date}
+        </text>
+        <text x={W - MR} y={H - 8} textAnchor="end" className="fill-zinc-400" fontSize="10">
+          {trend[trend.length - 1].date}
+        </text>
       </svg>
-      <div className="mt-1 flex justify-between text-[10px] text-zinc-400">
-        <span>{trend[0].date}</span>
-        <span>{trend[trend.length - 1].date}</span>
-      </div>
     </div>
   );
 }
