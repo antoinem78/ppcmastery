@@ -156,7 +156,7 @@ export async function ensureDocumentSent(documentId: string): Promise<void> {
   if (status === "document.draft") {
     await api(`/documents/${documentId}/send`, {
       method: "POST",
-      body: JSON.stringify({ silent: true, subject: "Your PPC Mastery agreement" }),
+      body: JSON.stringify({ silent: true, subject: `Your ${entityConfig.brandName} agreement` }),
     });
   }
 }

@@ -1,6 +1,7 @@
 // /onboarding with no client id — there's nothing to show. Real onboarding
 // happens at /onboarding/[id] via the link an admin sends.
 import { Wordmark } from "@/components/Wordmark";
+import { entityConfig } from "@/lib/config";
 
 export default function OnboardingIndexPage() {
   return (
@@ -14,7 +15,7 @@ export default function OnboardingIndexPage() {
         </h1>
         <p className="mt-2 text-sm text-zinc-500">
           Please use the personalised onboarding link we sent you. If you don&rsquo;t
-          have one, contact your PPC Mastery representative.
+          have one, contact your {entityConfig.brandName} representative.
         </p>
       </div>
     </div>

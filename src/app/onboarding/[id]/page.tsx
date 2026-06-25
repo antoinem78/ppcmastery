@@ -10,7 +10,7 @@ import {
   planBlurb,
   planFeatures,
 } from "@/lib/tiers";
-import { formatMoney } from "@/lib/config";
+import { entityConfig, formatMoney } from "@/lib/config";
 import { Wordmark } from "@/components/Wordmark";
 import {
   confirmDetails,
@@ -104,7 +104,7 @@ export default async function OnboardingPage({
           {client.company_name}
         </h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Your campaign performance, managed by PPC Mastery.
+          Your campaign performance, managed by {entityConfig.brandName}.
         </p>
         <div className="mt-6">
           <AdsDashboard

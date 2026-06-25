@@ -4,6 +4,7 @@
 // reach Supabase with the secret key.
 
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
+import { entityConfig } from "@/lib/config";
 
 export const dynamic = "force-dynamic"; // always read fresh from the DB
 
@@ -28,7 +29,7 @@ export default async function DashboardPage() {
   return (
     <div className="p-10">
       <h1 className="text-2xl font-semibold text-zinc-900">Dashboard</h1>
-      <p className="mt-1 text-sm text-zinc-500">PPC Mastery — internal ops</p>
+      <p className="mt-1 text-sm text-zinc-500">{entityConfig.brandName} — internal ops</p>
 
       <div className="mt-8 max-w-sm rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
         {result.ok ? (

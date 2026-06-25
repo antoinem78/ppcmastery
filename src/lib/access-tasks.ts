@@ -4,6 +4,8 @@
 // different: the client gives us THEIR account number and we link it manually
 // (handled as its own input task, not here).
 
+import { entityConfig } from "@/lib/config";
+
 export type AccessTaskKey = "ga4" | "gtm" | "gsc" | "gmc" | "meta";
 
 export interface AccessTaskDef {
@@ -113,12 +115,12 @@ export function accessGrantTargets(key: AccessTaskKey): {
     return {
       label: "Add our Business Manager ID as a Partner:",
       values: id ? [id] : [],
-      emptyHint: "(ask your PPC Mastery contact for our Business Manager ID)",
+      emptyHint: `(ask your ${entityConfig.brandName} contact for our Business Manager ID)`,
     };
   }
   return {
     label: "Grant access to:",
     values: getGrantEmails(),
-    emptyHint: "(ask your PPC Mastery contact for the email)",
+    emptyHint: `(ask your ${entityConfig.brandName} contact for the email)`,
   };
 }
