@@ -35,7 +35,7 @@ export async function GET(request: Request) {
   const { data: rows } = await supabase
     .from("onboarding_state")
     .select(
-      "client_id, google_ads_customer_id, google_ads_reporting_customer_id, clients(company_name)",
+      "client_id, google_ads_customer_id, google_ads_reporting_customer_id, clients(company_name, contact_name)",
     )
     .eq("ad_link_status", "approved")
     .not("google_ads_customer_id", "is", null);
@@ -76,6 +76,8 @@ export async function GET(request: Request) {
 
   let sent = 0;
   let failed = 0;
+  let slackFailed = 0;
+  const slackErrors: string[] = [];
 
   async function processClient(row: (typeof clients)[number]): Promise<void> {
     const clientId = row.client_id as string;
@@ -83,8 +85,11 @@ export async function GET(request: Request) {
     // Report on the leaf account (the linked id may be a manager/MCC).
     const reportingId =
       (row.google_ads_reporting_customer_id as string | null) ?? customerId;
-    const companyName =
-      (row.clients as unknown as { company_name?: string } | null)?.company_name ?? "";
+    const clientMeta = row.clients as unknown as
+      | { company_name?: string; contact_name?: string | null }
+      | null;
+    const companyName = clientMeta?.company_name ?? "";
+    const contactName = clientMeta?.contact_name ?? null;
 
     try {
       // One dashboard pull (cached) gives us the verified weekly numbers + the
@@ -98,12 +103,17 @@ export async function GET(request: Request) {
 
       let narrative: string | null = null;
       try {
-        narrative = await generateNarrative(dash, companyName, optimisations);
+        narrative = await generateNarrative(dash, companyName, optimisations, contactName);
       } catch (e) {
         console.error(`Narrative skipped for ${clientId}:`, e);
       }
       const body = narrative ?? formatWeeklyText(dash.weekly, dash.currency);
 
+      // Deliver the draft to the review channel. A wrong/uninvited channel must
+      // NOT look like success — surface the failure instead of swallowing it.
+      // (Prefer the channel ID over a #name in SLACK_REVIEW_CHANNEL: names that
+      //  don't resolve fail silently.)
+      let delivered = !slackOn; // nothing to deliver when Slack is off
       if (slackOn) {
         try {
           const { postMessage } = await import("@/lib/integrations/slack");
@@ -116,7 +126,10 @@ export async function GET(request: Request) {
             "_Draft for review — not yet sent to the client._",
           ].join("\n");
           await postMessage(reviewChannel!, draft);
+          delivered = true;
         } catch (e) {
+          slackFailed++;
+          slackErrors.push(`${companyName || clientId}: ${e instanceof Error ? e.message : "unknown error"}`);
           console.error(`Weekly draft post failed for ${clientId}:`, e);
         }
       }
@@ -134,11 +147,11 @@ export async function GET(request: Request) {
 
       await logActivity({
         clientId,
-        eventType: "weekly_report_sent",
+        eventType: delivered ? "weekly_report_sent" : "weekly_report_generated",
         actor: "system:cron",
-        payload: { period_end: dash.weekly.end },
+        payload: { period_end: dash.weekly.end, slack_delivered: delivered },
       });
-      sent++;
+      if (delivered) sent++;
     } catch (e) {
       console.error(`Weekly report failed for client ${clientId}:`, e);
       failed++;
@@ -161,6 +174,8 @@ export async function GET(request: Request) {
     clients: clients.length,
     sent,
     failed,
+    slackFailed,
+    ...(slackErrors.length ? { slackErrors } : {}),
     ...(filtered ? { matched: clients.map(companyOf) } : {}),
   });
 }

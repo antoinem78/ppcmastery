@@ -1,9 +1,34 @@
 // Google Ads performance dashboard (Phase 6.1, redesigned). Premium, agency-grade
 // client view — verified payload from the reporting data layer. Account currency,
-// all campaign types (search impression share + search terms stay search-only and
-// are labelled as such). Server-rendered, inline SVG, no client JS.
-import type { DashboardPayload, Kpi } from "@/lib/integrations/google-ads/reporting";
+// all campaign types. Conversions shown on both bases (interaction date + By-Time).
+// Search impression-share suite + search terms stay search-only and are labelled.
+// Server-rendered, inline SVG, no client JS.
+import type {
+  DashboardPayload,
+  Kpi,
+  CampaignPerf,
+  TopAd,
+  MonthRow,
+  ImpressionShare,
+} from "@/lib/integrations/google-ads/reporting";
 import { REPORT_WINDOWS } from "@/lib/integrations/google-ads/reporting";
+
+function makeFmt(currency: string) {
+  return {
+    money: (n: number, dp = 0) =>
+      new Intl.NumberFormat("en", {
+        style: "currency",
+        currency,
+        minimumFractionDigits: dp,
+        maximumFractionDigits: dp,
+      }).format(n),
+    int: (n: number) => new Intl.NumberFormat("en").format(Math.round(n)),
+    dec: (n: number, dp = 1) => new Intl.NumberFormat("en", { maximumFractionDigits: dp }).format(n),
+    pct: (n: number) => `${new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(n)}%`,
+  };
+}
+
+const rangeLabel = (w: number) => (w === 7 ? "Week" : `${w}d`);
 
 export function AdsDashboard({
   payload,
@@ -25,18 +50,9 @@ export function AdsDashboard({
     );
   }
 
-  const money = (n: number, dp = 0) =>
-    new Intl.NumberFormat("en", {
-      style: "currency",
-      currency: payload.currency,
-      minimumFractionDigits: dp,
-      maximumFractionDigits: dp,
-    }).format(n);
-  const int = (n: number) => new Intl.NumberFormat("en").format(Math.round(n));
-  const dec = (n: number, dp = 1) =>
-    new Intl.NumberFormat("en", { maximumFractionDigits: dp }).format(n);
-  const pct = (n: number) => `${dec(n)}%`;
+  const { money, int, dec, pct } = makeFmt(payload.currency);
   const guard = payload.hasConversionValue;
+  const k = payload.kpis;
 
   return (
     <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
@@ -45,8 +61,7 @@ export function AdsDashboard({
         <div>
           <h2 className="text-base font-semibold text-white">Performance</h2>
           <p className="text-xs text-white/60">
-            All campaigns · {payload.range.start} → {payload.range.end} ·{" "}
-            {payload.currency}
+            All campaigns · {payload.range.start} → {payload.range.end} · {payload.currency}
           </p>
         </div>
         <div className="flex gap-1 rounded-lg bg-white/10 p-1">
@@ -58,7 +73,7 @@ export function AdsDashboard({
                 w === range ? "bg-white text-[#0B1F3A]" : "text-white/70 hover:text-white"
               }`}
             >
-              {w}d
+              {rangeLabel(w)}
             </a>
           ))}
         </div>
@@ -70,24 +85,41 @@ export function AdsDashboard({
 
         {/* Hero KPIs */}
         <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <HeroCard label="Spend" value={money(payload.kpis.spend.value)} k={payload.kpis.spend} cost accent="navy" />
-          <HeroCard label="Conversions" value={dec(payload.kpis.conversions.value)} k={payload.kpis.conversions} accent="emerald" />
-          <HeroCard label="Cost / conv." value={money(payload.kpis.costPerConv.value, 2)} k={payload.kpis.costPerConv} cost accent="navy" />
+          <HeroCard label="Spend" value={money(k.spend.value)} k={k.spend} cost accent="navy" />
+          <HeroCard label="Conversions" value={dec(k.conversions.value)} k={k.conversions} accent="emerald" />
+          <HeroCard label="Cost / conv." value={money(k.costPerConv.value, 2)} k={k.costPerConv} cost accent="navy" />
           {guard ? (
-            <HeroCard label="ROAS" value={`${dec(payload.kpis.roas.value, 2)}×`} k={payload.kpis.roas} accent="violet" />
+            <HeroCard label="ROAS" value={`${dec(k.roas.value, 2)}×`} k={k.roas} accent="violet" />
           ) : (
-            <HeroCard label="Conv. rate" value={pct(payload.kpis.convRate.value)} k={payload.kpis.convRate} accent="violet" />
+            <HeroCard label="Conv. rate" value={pct(k.convRate.value)} k={k.convRate} accent="violet" />
           )}
         </div>
 
         {/* Secondary KPIs */}
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <MiniCard label="Impressions" value={int(payload.kpis.impressions.value)} k={payload.kpis.impressions} />
-          <MiniCard label="Clicks" value={int(payload.kpis.clicks.value)} k={payload.kpis.clicks} />
-          <MiniCard label="CTR" value={pct(payload.kpis.ctr.value)} k={payload.kpis.ctr} />
-          <MiniCard label="Avg CPC" value={money(payload.kpis.avgCpc.value, 2)} k={payload.kpis.avgCpc} cost />
-          <MiniCard label="Conv. value" value={guard ? money(payload.kpis.convValue.value) : "—"} k={guard ? payload.kpis.convValue : undefined} />
-          <MiniCard label="Search impr. share" value={pct(payload.kpis.searchImprShare.value)} k={payload.kpis.searchImprShare} />
+          <MiniCard label="Impressions" value={int(k.impressions.value)} k={k.impressions} />
+          <MiniCard label="Clicks" value={int(k.clicks.value)} k={k.clicks} />
+          <MiniCard label="CTR" value={pct(k.ctr.value)} k={k.ctr} />
+          <MiniCard label="Avg CPC" value={money(k.avgCpc.value, 2)} k={k.avgCpc} cost />
+          <MiniCard label="Conv. value" value={guard ? money(k.convValue.value) : "—"} k={guard ? k.convValue : undefined} />
+          <MiniCard label="Search impr. share" value={pct(k.searchImprShare.value)} k={k.searchImprShare} />
+        </div>
+
+        {/* By conversion date (By-Time) */}
+        <div className="mt-3">
+          <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+            By conversion date
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <MiniCard label="Conversions (by time)" value={dec(k.conversionsByTime.value)} k={k.conversionsByTime} />
+            {guard && (
+              <>
+                <MiniCard label="Value (by time)" value={money(k.convValueByTime.value)} k={k.convValueByTime} />
+                <MiniCard label="ROAS (by time)" value={`${dec(k.roasByTime.value, 2)}×`} k={k.roasByTime} />
+                <MiniCard label="Avg order value" value={money(k.aov.value, 2)} k={k.aov} cost />
+              </>
+            )}
+          </div>
         </div>
 
         {/* Trend */}
@@ -102,57 +134,59 @@ export function AdsDashboard({
           </div>
         </div>
 
-        {/* Breakdowns */}
-        <div className="mt-7 grid gap-6 lg:grid-cols-3">
-          {(payload.byChannel ?? []).length > 1 && (
+        {/* Campaign performance grid (full width) */}
+        {payload.campaignPerformance.length > 0 && (
+          <CampaignGrid rows={payload.campaignPerformance} currency={payload.currency} />
+        )}
+
+        {/* Top performing ads */}
+        {payload.topAds.length > 0 && (
+          <TopAdsTable ads={payload.topAds} currency={payload.currency} guard={guard} />
+        )}
+
+        {/* Auction insights (impression-share suite) */}
+        {payload.impressionShare.impressionShare > 0 && (
+          <AuctionInsights share={payload.impressionShare} />
+        )}
+
+        {/* Month performance */}
+        {payload.monthPerformance.length > 0 && (
+          <MonthTable rows={payload.monthPerformance} currency={payload.currency} />
+        )}
+
+        {/* Smaller breakdowns — scroll for detail */}
+        <div className="mt-7 grid gap-6 lg:grid-cols-2">
+          {payload.byConversionAction.length > 0 && (
             <Breakdown
-              title="By channel"
-              cols={["Channel", "Spend", "Conv.", ...(guard ? ["ROAS"] : ["Cost/conv."])]}
-              rows={(payload.byChannel ?? []).map((c) => ({
-                label: c.channel,
-                spend: c.spend,
-                cells: [
-                  money(c.spend),
-                  dec(c.conversions),
-                  guard ? `${dec(c.roas, 2)}×` : money(c.costPerConv, 2),
-                ],
+              title="Conversions by action"
+              cols={["Action", "Conv.", ...(guard ? ["Value"] : [])]}
+              rows={payload.byConversionAction.map((a) => ({
+                label: a.action,
+                weight: a.conversions,
+                cells: [dec(a.conversions), ...(guard ? [money(a.value)] : [])],
               }))}
-              maxSpend={Math.max(...(payload.byChannel ?? []).map((c) => c.spend), 1)}
+              maxWeight={Math.max(...payload.byConversionAction.map((a) => a.conversions), 1)}
             />
           )}
-          <Breakdown
-            title="By campaign"
-            cols={["Campaign", "Spend", "Conv.", ...(guard ? ["ROAS"] : ["Cost/conv."])]}
-            rows={payload.byCampaign.map((c) => ({
-              label: c.name,
-              spend: c.spend,
-              cells: [
-                money(c.spend),
-                dec(c.conversions),
-                guard ? `${dec(c.roas, 2)}×` : money(c.costPerConv, 2),
-              ],
-            }))}
-            maxSpend={Math.max(...payload.byCampaign.map((c) => c.spend), 1)}
-          />
           <Breakdown
             title="By device"
             cols={["Device", "Spend", "Conv."]}
             rows={payload.byDevice.map((d) => ({
               label: d.device,
-              spend: d.spend,
+              weight: d.spend,
               cells: [money(d.spend), dec(d.conversions)],
             }))}
-            maxSpend={Math.max(...payload.byDevice.map((d) => d.spend), 1)}
+            maxWeight={Math.max(...payload.byDevice.map((d) => d.spend), 1)}
           />
           <Breakdown
-            title="Top search terms"
+            title="Top search terms (Search only)"
             cols={["Term", "Spend", "Conv."]}
             rows={payload.topSearchTerms.map((t) => ({
               label: t.term,
-              spend: t.spend,
+              weight: t.spend,
               cells: [money(t.spend), dec(t.conversions)],
             }))}
-            maxSpend={Math.max(...payload.topSearchTerms.map((t) => t.spend), 1)}
+            maxWeight={Math.max(...payload.topSearchTerms.map((t) => t.spend), 1)}
           />
         </div>
       </div>
@@ -169,14 +203,14 @@ function WeekBanner({
   money: (n: number) => string;
   dec: (n: number, dp?: number) => string;
 }) {
-  const chip = (label: string, value: string, k: Kpi) => (
+  const chip = (label: string, value: string, kp: Kpi) => (
     <div>
       <div className="text-xs text-zinc-500">{label}</div>
       <div className="mt-0.5 flex items-baseline gap-2">
         <span className="text-xl font-semibold text-zinc-900">{value}</span>
-        {k.deltaPct != null && (
-          <span className={`text-xs font-medium ${k.deltaPct >= 0 ? "text-emerald-600" : "text-amber-600"}`}>
-            {k.deltaPct >= 0 ? "▲" : "▼"} {Math.abs(k.deltaPct).toFixed(0)}%
+        {kp.deltaPct != null && (
+          <span className={`text-xs font-medium ${kp.deltaPct >= 0 ? "text-emerald-600" : "text-amber-600"}`}>
+            {kp.deltaPct >= 0 ? "▲" : "▼"} {Math.abs(kp.deltaPct).toFixed(0)}%
           </span>
         )}
       </div>
@@ -233,17 +267,7 @@ function HeroCard({
   );
 }
 
-function MiniCard({
-  label,
-  value,
-  k,
-  cost,
-}: {
-  label: string;
-  value: string;
-  k?: Kpi;
-  cost?: boolean;
-}) {
+function MiniCard({ label, value, k, cost }: { label: string; value: string; k?: Kpi; cost?: boolean }) {
   return (
     <div className="rounded-lg border border-zinc-200 p-3">
       <div className="text-[11px] text-zinc-500">{label}</div>
@@ -261,6 +285,18 @@ function Delta({ deltaPct, cost }: { deltaPct: number; cost?: boolean }) {
     <div className={`mt-1 text-xs font-medium ${color}`}>
       {up ? "▲" : "▼"} {Math.abs(deltaPct).toFixed(0)}%
     </div>
+  );
+}
+
+function DeltaInline({ deltaPct, cost }: { deltaPct: number | null; cost?: boolean }) {
+  if (deltaPct == null) return null;
+  const up = deltaPct >= 0;
+  const good = cost ? !up : up;
+  const color = deltaPct === 0 ? "text-zinc-400" : good ? "text-emerald-600" : "text-amber-600";
+  return (
+    <span className={`ml-1 text-[10px] font-medium ${color}`}>
+      {up ? "▲" : "▼"}{Math.abs(deltaPct).toFixed(0)}%
+    </span>
   );
 }
 
@@ -309,16 +345,174 @@ function TrendChart({ trend }: { trend: { date: string; spend: number; conversio
   );
 }
 
+// Full-width campaign-performance grid: each metric cell = value + %Δ.
+function CampaignGrid({ rows, currency }: { rows: CampaignPerf[]; currency: string }) {
+  const { money, int, dec, pct } = makeFmt(currency);
+  return (
+    <div className="mt-7">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Campaign performance</h3>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full min-w-[900px] text-sm">
+          <thead>
+            <tr className="text-[11px] text-zinc-400">
+              <th className="w-[22rem] py-1 text-left font-medium">Campaign</th>
+              {["Clicks", "Impr.", "CTR", "Avg CPC", "Cost", "Conv.", "Cost/conv.", "Conv. rate"].map((c) => (
+                <th key={c} className="py-1 pl-3 text-right font-medium">{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className="border-t border-zinc-100 align-top">
+                <td className="w-[22rem] break-words py-2 pr-3 text-zinc-800">
+                  {r.name}
+                  <span className="ml-1 text-[10px] uppercase tracking-wide text-zinc-400">{r.channel}</span>
+                </td>
+                <Cell v={int(r.clicks.value)} k={r.clicks} />
+                <Cell v={int(r.impressions.value)} k={r.impressions} />
+                <Cell v={pct(r.ctr.value)} k={r.ctr} />
+                <Cell v={money(r.avgCpc.value, 2)} k={r.avgCpc} cost />
+                <Cell v={money(r.cost.value)} k={r.cost} cost />
+                <Cell v={dec(r.conversions.value)} k={r.conversions} />
+                <Cell v={r.conversions.value > 0 ? money(r.costPerConv.value, 2) : "—"} k={r.costPerConv} cost />
+                <Cell v={pct(r.convRate.value)} k={r.convRate} />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function Cell({ v, k, cost }: { v: string; k: Kpi; cost?: boolean }) {
+  return (
+    <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">
+      {v}
+      <DeltaInline deltaPct={k.deltaPct} cost={cost} />
+    </td>
+  );
+}
+
+function TopAdsTable({ ads, currency, guard }: { ads: TopAd[]; currency: string; guard: boolean }) {
+  const { money, int, dec, pct } = makeFmt(currency);
+  return (
+    <div className="mt-7">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Top performing ads</h3>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full min-w-[820px] text-sm">
+          <thead>
+            <tr className="text-[11px] text-zinc-400">
+              <th className="w-[26rem] py-1 text-left font-medium">Ad</th>
+              {["Impr.", "Clicks", "CTR", "Conv.", "Cost", ...(guard ? ["Value"] : [])].map((c) => (
+                <th key={c} className="py-1 pl-3 text-right font-medium">{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ads.map((a, i) => (
+              <tr key={i} className="border-t border-zinc-100 align-top">
+                <td className="w-[26rem] py-2 pr-3">
+                  <div className="break-words text-zinc-800">{a.headline}</div>
+                  <div className="mt-0.5 truncate text-[11px] text-zinc-400">
+                    {a.campaign}
+                    {a.finalUrl ? ` · ${a.finalUrl}` : ""}
+                  </div>
+                </td>
+                <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">{int(a.impressions)}</td>
+                <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">{int(a.clicks)}</td>
+                <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">{pct(a.ctr)}</td>
+                <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">{dec(a.conversions)}</td>
+                <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">{money(a.cost)}</td>
+                {guard && <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">{money(a.convValue)}</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AuctionInsights({ share }: { share: ImpressionShare }) {
+  const { pct } = makeFmt("USD"); // % only — currency irrelevant
+  const tiles: { label: string; value: number; lost?: boolean }[] = [
+    { label: "Impression share", value: share.impressionShare },
+    { label: "Abs. top IS", value: share.absoluteTop },
+    { label: "Top IS", value: share.top },
+    { label: "Lost to rank", value: share.rankLost, lost: true },
+    { label: "Lost to budget", value: share.budgetLost, lost: true },
+  ];
+  return (
+    <div className="mt-7">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+        Auction insights <span className="font-normal text-zinc-400">(Search only)</span>
+      </h3>
+      <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {tiles.map((t) => (
+          <div key={t.label} className="rounded-lg border border-zinc-200 p-3">
+            <div className="text-[11px] text-zinc-500">{t.label}</div>
+            <div className={`mt-0.5 text-base font-semibold ${t.lost ? "text-amber-600" : "text-zinc-900"}`}>
+              {pct(t.value)}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] text-zinc-400">
+        Competitor domains / overlap / outranking are not available via the Google Ads API; this is the
+        impression-share equivalent.
+      </p>
+    </div>
+  );
+}
+
+function MonthTable({ rows, currency }: { rows: MonthRow[]; currency: string }) {
+  const { money, int, dec, pct } = makeFmt(currency);
+  return (
+    <div className="mt-7">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Month performance</h3>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full min-w-[760px] text-sm">
+          <thead>
+            <tr className="text-[11px] text-zinc-400">
+              <th className="py-1 text-left font-medium">Month</th>
+              {["Clicks", "Impr.", "CTR", "Avg CPC", "Cost", "Conv.", "Cost/conv."].map((c) => (
+                <th key={c} className="py-1 pl-3 text-right font-medium">{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.month} className="border-t border-zinc-100">
+                <td className="whitespace-nowrap py-2 pr-3 text-zinc-800">{r.label}</td>
+                <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">{int(r.clicks)}</td>
+                <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">{int(r.impressions)}</td>
+                <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">{pct(r.ctr)}</td>
+                <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">{money(r.avgCpc, 2)}</td>
+                <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">{money(r.cost)}</td>
+                <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">{dec(r.conversions)}</td>
+                <td className="whitespace-nowrap py-2 pl-3 text-right text-zinc-700">
+                  {r.conversions > 0 ? money(r.costPerConv, 2) : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function Breakdown({
   title,
   cols,
   rows,
-  maxSpend,
+  maxWeight,
 }: {
   title: string;
   cols: string[];
-  rows: { label: string; spend: number; cells: string[] }[];
-  maxSpend: number;
+  rows: { label: string; weight: number; cells: string[] }[];
+  maxWeight: number;
 }) {
   return (
     <div>
@@ -339,10 +533,10 @@ function Breakdown({
           <tbody>
             {rows.map((r, ri) => (
               <tr key={ri} className="border-t border-zinc-100">
-                <td className="relative max-w-[10rem] truncate py-1.5 pr-2 text-zinc-800" title={r.label}>
+                <td className="relative max-w-[12rem] truncate py-1.5 pr-2 text-zinc-800" title={r.label}>
                   <span
                     className="absolute inset-y-1 left-0 -z-0 rounded-sm bg-[#0B1F3A]/[0.05]"
-                    style={{ width: `${Math.max(4, (r.spend / maxSpend) * 100)}%` }}
+                    style={{ width: `${Math.max(4, (r.weight / maxWeight) * 100)}%` }}
                   />
                   <span className="relative">{r.label}</span>
                 </td>

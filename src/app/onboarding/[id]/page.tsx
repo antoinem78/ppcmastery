@@ -98,7 +98,7 @@ export default async function OnboardingPage({
       }
     }
     return (
-      <Shell>
+      <Shell wide>
         <h1 className="text-2xl font-semibold text-zinc-900">
           {client.company_name}
         </h1>
@@ -145,7 +145,7 @@ export default async function OnboardingPage({
       }
     }
     return (
-      <Shell>
+      <Shell wide>
         <ClientHome
           id={id}
           companyName={client.company_name}
@@ -225,15 +225,18 @@ export default async function OnboardingPage({
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+// `wide` is used for the dashboard views (reporting-only + post-payment home),
+// which carry the full performance tables; the funnel stays narrow.
+function Shell({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
+  const max = wide ? "max-w-6xl" : "max-w-2xl";
   return (
     <div className="min-h-screen bg-zinc-50">
       <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto max-w-2xl px-6 py-4 text-lg">
+        <div className={`mx-auto ${max} px-6 py-4 text-lg`}>
           <Wordmark variant="dark" />
         </div>
       </header>
-      <main className="mx-auto max-w-2xl px-6 py-10">{children}</main>
+      <main className={`mx-auto ${max} px-6 py-10`}>{children}</main>
     </div>
   );
 }

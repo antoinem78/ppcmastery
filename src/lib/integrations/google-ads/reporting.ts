@@ -1,12 +1,13 @@
 // Phase 6.1: Google Ads performance dashboard data layer.
 // ALL campaign types (Search, Performance Max, Demand Gen, Shopping, Display,
-// Video, ...), removed campaigns excluded, account timezone + currency, last
-// 28 vs prior 28 (or 7/90) excluding today. Conversions are counted by
-// CONVERSION DATE (what happened this week), with an interaction-date fallback
-// for the documented case where conversions_by_conversion_date returns empty.
-// A few inherently search-only metrics (search impression share, search terms)
-// stay search-scoped and are labelled as such. Whole payload cached per
-// client+window (~30 min) so client refreshes don't drain the shared API quota.
+// Video, ...), removed campaigns excluded. Account timezone + currency. The
+// 7-day window is the most recent COMPLETE Mon-Sun week; 28/90 stay rolling.
+// Conversions are reported on BOTH bases: interaction date (the primary KPIs,
+// they mature over time) and conversion date ("By-Time", what happened in the
+// period). A few inherently search-only signals (impression-share suite, search
+// terms) stay search-scoped and are labelled as such. Whole payload cached per
+// client+window (~30 min). NOTE: after any change to the payload SHAPE, clear
+// ads_report_cache so the portal re-pulls.
 //
 // All figures come from here (the data layer). Any LLM summary only rewords
 // these verified numbers — it never generates them.
@@ -33,31 +34,103 @@ export interface WeeklySummary {
   changeCount: number;
 }
 
+export interface CampaignRow {
+  name: string;
+  channel: string;
+  spend: number;
+  conversions: number;
+  costPerConv: number;
+  roas: number;
+}
+export interface ChannelRow {
+  channel: string;
+  spend: number;
+  conversions: number;
+  convValue: number;
+  costPerConv: number;
+  roas: number;
+}
+export interface CampaignPerf {
+  name: string;
+  channel: string;
+  clicks: Kpi;
+  impressions: Kpi;
+  ctr: Kpi;
+  avgCpc: Kpi;
+  cost: Kpi;
+  conversions: Kpi;
+  costPerConv: Kpi;
+  convRate: Kpi;
+}
+export interface ConversionAction {
+  action: string;
+  conversions: number;
+  value: number;
+}
+export interface TopAd {
+  campaign: string;
+  headline: string;
+  finalUrl: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  conversions: number;
+  cost: number;
+  convValue: number;
+}
+export interface ImpressionShare {
+  impressionShare: number;
+  absoluteTop: number;
+  top: number;
+  rankLost: number;
+  budgetLost: number;
+}
+export interface MonthRow {
+  month: string; // YYYY-MM-01
+  label: string; // "June 2026"
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  avgCpc: number;
+  cost: number;
+  conversions: number;
+  costPerConv: number;
+}
+
 export interface DashboardPayload {
   currency: string;
   timeZone: string;
   window: number;
   range: { start: string; end: string };
+  prevRange: { start: string; end: string };
   hasConversionValue: boolean;
-  /** True when conversions are attributed by conversion date (the default);
-   *  false when we fell back to interaction-date because the by-date metric
-   *  came back empty. */
-  convByConversionDate: boolean;
   weekly: WeeklySummary;
   kpis: {
     spend: Kpi; impressions: Kpi; clicks: Kpi; ctr: Kpi; avgCpc: Kpi;
-    conversions: Kpi; costPerConv: Kpi; convValue: Kpi; roas: Kpi;
-    convRate: Kpi; searchImprShare: Kpi;
+    conversions: Kpi; costPerConv: Kpi; convValue: Kpi; roas: Kpi; convRate: Kpi;
+    searchImprShare: Kpi;
+    // By-Time (conversion-date basis), shown alongside the interaction-date figures.
+    conversionsByTime: Kpi; convValueByTime: Kpi; roasByTime: Kpi; aov: Kpi;
   };
+  avgOrdersPerDay: number;
+  avgRevenuePerDay: number;
   trend: { date: string; spend: number; conversions: number }[];
-  byCampaign: { name: string; channel: string; spend: number; conversions: number; costPerConv: number; roas: number }[];
-  byChannel: { channel: string; spend: number; conversions: number; convValue: number; costPerConv: number; roas: number }[];
+  byCampaign: CampaignRow[];
+  byChannel: ChannelRow[];
+  campaignPerformance: CampaignPerf[];
+  byConversionAction: ConversionAction[];
+  topAds: TopAd[];
+  impressionShare: ImpressionShare;
+  monthPerformance: MonthRow[];
   byDevice: { device: string; spend: number; conversions: number }[];
   topSearchTerms: { term: string; spend: number; conversions: number }[];
 }
 
 const num = (v: unknown) => (typeof v === "number" ? v : Number(v ?? 0)) || 0;
 const micros = (v: unknown) => num(v) / 1_000_000;
+const ratio = (a: number, b: number) => (b > 0 ? a / b : 0);
+const ctrOf = (clicks: number, impressions: number) => ratio(clicks, impressions) * 100;
+const cvrOf = (conversions: number, clicks: number) => ratio(conversions, clicks) * 100;
 
 function ymdInTz(d: Date, tz: string): string {
   // en-CA formats as YYYY-MM-DD.
@@ -75,18 +148,24 @@ const addDays = (d: Date, n: number) => {
   return x;
 };
 
+// The 7-day window is special-cased to the most recent COMPLETE Mon-Sun week
+// (the weekly report period); 28/90 stay rolling "last N days excluding today".
 function windows(tz: string, windowDays: number) {
   const today = new Date(`${ymdInTz(new Date(), tz)}T00:00:00Z`);
+  if (windowDays === 7) {
+    const dow = today.getUTCDay(); // 0=Sun … 6=Sat
+    const backToSunday = dow === 0 ? 7 : dow; // days back to last completed Sunday
+    const end = addDays(today, -backToSunday); // Sunday
+    const start = addDays(end, -6); // Monday
+    const prevEnd = addDays(start, -1); // previous Sunday
+    const prevStart = addDays(prevEnd, -6); // previous Monday
+    return { start: fmt(start), end: fmt(end), prevStart: fmt(prevStart), prevEnd: fmt(prevEnd) };
+  }
   const end = addDays(today, -1); // exclude today
   const start = addDays(end, -(windowDays - 1));
   const prevEnd = addDays(start, -1);
   const prevStart = addDays(prevEnd, -(windowDays - 1));
-  return {
-    start: fmt(start),
-    end: fmt(end),
-    prevStart: fmt(prevStart),
-    prevEnd: fmt(prevEnd),
-  };
+  return { start: fmt(start), end: fmt(end), prevStart: fmt(prevStart), prevEnd: fmt(prevEnd) };
 }
 
 function kpi(value: number, prev: number): Kpi {
@@ -114,32 +193,40 @@ const CHANNEL_LABEL: Record<string, string> = {
   TRAVEL: "Travel",
   LOCAL: "Local",
 };
-function prettyChannel(t: string): string {
-  if (CHANNEL_LABEL[t]) return CHANNEL_LABEL[t];
-  if (!t) return "Other";
-  // Title-case an unmapped enum (e.g. SOME_NEW_TYPE -> "Some New Type").
-  return t
+function channelLabel(t?: string): string {
+  const key = t ?? "";
+  if (CHANNEL_LABEL[key]) return CHANNEL_LABEL[key];
+  if (!key) return "Other";
+  return key
     .toLowerCase()
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 }
 
+interface CampaignAgg {
+  channel: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  convValue: number;
+}
 interface Totals {
   spend: number;
   impressions: number;
   clicks: number;
   conversions: number;
   convValue: number;
-  /** false when we fell back to interaction-date (by-date metric was empty). */
-  byConversionDate: boolean;
-  byName: Record<string, { spend: number; conversions: number; convValue: number; channel: string }>;
-  byChannel: Record<string, { spend: number; impressions: number; clicks: number; conversions: number; convValue: number }>;
+  convByTime: number;
+  convValueByTime: number;
+  byName: Record<string, CampaignAgg>;
+  byChannel: Record<string, Omit<CampaignAgg, "channel">>;
 }
 
-// Aggregate campaign metrics across ALL channels for a date range. Reads both
-// conversion bases and prefers by-conversion-date (what happened in the week),
-// falling back to interaction-date only if by-date is entirely empty.
+// Aggregate campaign metrics across ALL channels for a date range. Tracks both
+// conversion bases (interaction date + by-conversion-date) and retains
+// impressions/clicks per campaign (the Campaign-performance grid needs them).
 async function campaignTotals(customerId: string, start: string, end: string): Promise<Totals> {
   const rows = await gaqlSearch(
     customerId,
@@ -151,95 +238,75 @@ async function campaignTotals(customerId: string, start: string, end: string): P
      WHERE segments.date BETWEEN '${start}' AND '${end}' AND ${ACTIVE_FILTER}`,
   );
 
-  let spend = 0, impressions = 0, clicks = 0;
-  let convByDate = 0, convInt = 0, valByDate = 0, valInt = 0;
-  // Per-bucket we keep both conversion bases, then resolve once we know which to use.
-  const rawName: Record<string, { spend: number; convByDate: number; convInt: number; valByDate: number; valInt: number; channel: string }> = {};
-  const rawChan: Record<string, { spend: number; impressions: number; clicks: number; convByDate: number; convInt: number; valByDate: number; valInt: number }> = {};
-
+  const t: Totals = {
+    spend: 0, impressions: 0, clicks: 0, conversions: 0, convValue: 0,
+    convByTime: 0, convValueByTime: 0, byName: {}, byChannel: {},
+  };
   for (const r of rows) {
     const m = (r.metrics ?? {}) as Record<string, unknown>;
     const c = micros(m.costMicros);
-    const imp = num(m.impressions);
-    const clk = num(m.clicks);
-    const cbd = num(m.conversionsByConversionDate);
-    const cin = num(m.conversions);
-    const vbd = num(m.conversionsValueByConversionDate);
-    const vin = num(m.conversionsValue);
-    const channel = String(((r.campaign ?? {}) as { advertisingChannelType?: string }).advertisingChannelType ?? "");
+    const im = num(m.impressions);
+    const ck = num(m.clicks);
+    const cn = num(m.conversions);
+    const cv = num(m.conversionsValue);
+    const cnt = num(m.conversionsByConversionDate);
+    const cvt = num(m.conversionsValueByConversionDate);
+    const channel = channelLabel(String(((r.campaign ?? {}) as { advertisingChannelType?: string }).advertisingChannelType ?? ""));
     const name = ((r.campaign ?? {}) as { name?: string }).name ?? "(unnamed)";
 
-    spend += c; impressions += imp; clicks += clk;
-    convByDate += cbd; convInt += cin; valByDate += vbd; valInt += vin;
+    t.spend += c; t.impressions += im; t.clicks += ck;
+    t.conversions += cn; t.convValue += cv;
+    t.convByTime += cnt; t.convValueByTime += cvt;
 
-    rawName[name] ??= { spend: 0, convByDate: 0, convInt: 0, valByDate: 0, valInt: 0, channel: prettyChannel(channel) };
-    rawName[name].spend += c; rawName[name].convByDate += cbd; rawName[name].convInt += cin;
-    rawName[name].valByDate += vbd; rawName[name].valInt += vin;
+    t.byName[name] ??= { channel, spend: 0, impressions: 0, clicks: 0, conversions: 0, convValue: 0 };
+    t.byName[name].spend += c; t.byName[name].impressions += im; t.byName[name].clicks += ck;
+    t.byName[name].conversions += cn; t.byName[name].convValue += cv;
 
-    const ch = prettyChannel(channel);
-    rawChan[ch] ??= { spend: 0, impressions: 0, clicks: 0, convByDate: 0, convInt: 0, valByDate: 0, valInt: 0 };
-    rawChan[ch].spend += c; rawChan[ch].impressions += imp; rawChan[ch].clicks += clk;
-    rawChan[ch].convByDate += cbd; rawChan[ch].convInt += cin;
-    rawChan[ch].valByDate += vbd; rawChan[ch].valInt += vin;
+    t.byChannel[channel] ??= { spend: 0, impressions: 0, clicks: 0, conversions: 0, convValue: 0 };
+    t.byChannel[channel].spend += c; t.byChannel[channel].impressions += im; t.byChannel[channel].clicks += ck;
+    t.byChannel[channel].conversions += cn; t.byChannel[channel].convValue += cv;
   }
-
-  // Prefer by-conversion-date; fall back to interaction-date if the by-date
-  // metric came back empty while interaction-date conversions exist.
-  const useByDate = convByDate > 0 || convInt === 0;
-  const pickConv = (bd: number, it: number) => (useByDate ? bd : it);
-
-  const byName: Totals["byName"] = {};
-  for (const [name, v] of Object.entries(rawName)) {
-    byName[name] = { spend: v.spend, conversions: pickConv(v.convByDate, v.convInt), convValue: pickConv(v.valByDate, v.valInt), channel: v.channel };
-  }
-  const byChannel: Totals["byChannel"] = {};
-  for (const [ch, v] of Object.entries(rawChan)) {
-    byChannel[ch] = { spend: v.spend, impressions: v.impressions, clicks: v.clicks, conversions: pickConv(v.convByDate, v.convInt), convValue: pickConv(v.valByDate, v.valInt) };
-  }
-
-  return {
-    spend,
-    impressions,
-    clicks,
-    conversions: pickConv(convByDate, convInt),
-    convValue: pickConv(valByDate, valInt),
-    byConversionDate: useByDate,
-    byName,
-    byChannel,
-  };
+  return t;
 }
 
-// Search impression share is an inherently search-only metric (PMax/Demand Gen
-// have no equivalent). Kept search-scoped and labelled as such in the report.
-async function searchImpressionShare(customerId: string, start: string, end: string) {
+// Impression-share suite (Search-only; impression-weighted). NOTE: the Google
+// Ads API does NOT expose the real Auction Insights report (competitor domains /
+// overlap / outranking) — there is no queryable resource. This is the only
+// programmatic equivalent; the UI labels it as such.
+async function impressionShareSuite(customerId: string, start: string, end: string): Promise<ImpressionShare> {
   const rows = await gaqlSearch(
     customerId,
-    `SELECT metrics.impressions, metrics.search_impression_share
+    `SELECT metrics.impressions, metrics.search_impression_share,
+            metrics.search_absolute_top_impression_share, metrics.search_top_impression_share,
+            metrics.search_rank_lost_impression_share, metrics.search_budget_lost_impression_share
      FROM campaign
      WHERE segments.date BETWEEN '${start}' AND '${end}' AND ${SEARCH_ONLY_FILTER}`,
   );
-  // Impression-weighted average across campaigns that report a share.
-  let weighted = 0, imprWithShare = 0;
+  let imprDenom = 0;
+  const w = { impressionShare: 0, absoluteTop: 0, top: 0, rankLost: 0, budgetLost: 0 };
   for (const r of rows) {
     const m = (r.metrics ?? {}) as Record<string, unknown>;
-    const share = m.searchImpressionShare;
-    if (share == null) continue;
+    if (m.searchImpressionShare == null) continue;
     const impr = num(m.impressions);
-    weighted += num(share) * impr;
-    imprWithShare += impr;
+    imprDenom += impr;
+    w.impressionShare += num(m.searchImpressionShare) * impr;
+    w.absoluteTop += num(m.searchAbsoluteTopImpressionShare) * impr;
+    w.top += num(m.searchTopImpressionShare) * impr;
+    w.rankLost += num(m.searchRankLostImpressionShare) * impr;
+    w.budgetLost += num(m.searchBudgetLostImpressionShare) * impr;
   }
-  return imprWithShare > 0 ? (weighted / imprWithShare) * 100 : 0;
+  const pct = (x: number) => (imprDenom > 0 ? (x / imprDenom) * 100 : 0);
+  return {
+    impressionShare: pct(w.impressionShare),
+    absoluteTop: pct(w.absoluteTop),
+    top: pct(w.top),
+    rankLost: pct(w.rankLost),
+    budgetLost: pct(w.budgetLost),
+  };
 }
 
-const OP_VERB: Record<string, string> = {
-  CREATE: "added",
-  REMOVE: "removed",
-  UPDATE: "updated",
-};
-
 // Map one campaign id -> { name, channel } so change events can be labelled
-// with the correct campaign AND channel (a Demand Gen edit must not read as a
-// Search edit).
+// with the correct campaign AND channel.
 async function campaignChannelMap(customerId: string): Promise<Record<string, { name: string; channel: string }>> {
   const rows = await gaqlSearch(
     customerId,
@@ -254,11 +321,8 @@ async function campaignChannelMap(customerId: string): Promise<Record<string, { 
 }
 
 // Classify one change_event into a specific, plain-English optimisation label,
-// using the resource type, the operation, the changed field mask, the new
-// resource, AND the campaign's channel. Channel-aware so that criterion/asset
-// changes in PMax / Demand Gen / Shopping are not mislabelled as "keywords".
-// Returns null for noise we don't want to surface. These are FACTS (what
-// changed); any rationale is added later by the narrative LLM.
+// channel-aware so criterion/asset changes in PMax / Demand Gen / Shopping are
+// not mislabelled as "keywords". Returns null for noise. FACTS only.
 function classifyChange(
   ce: {
     changeResourceType?: string;
@@ -298,12 +362,9 @@ function classifyChange(
     case "AD_GROUP_CRITERION": {
       const critType = String((nr.adGroupCriterion?.type as string) ?? "");
       const neg = Boolean((nr.adGroupCriterion?.negative as boolean) ?? false);
-      // Shopping / PMax listing groups (product partitions) — the "product IDs
-      // reported as keywords" bug. Distinguish by criterion type.
       if (critType === "LISTING_GROUP")
         return op === "CREATE" ? "product groups added" : op === "REMOVE" ? "product groups removed" : "product groups updated";
       if (has("negative") || neg) return "negative keywords added";
-      // Non-keyword criteria (audiences, webpages, user lists) — common outside Search.
       if (critType && critType !== "KEYWORD")
         return op === "CREATE" ? "audience targeting added" : op === "REMOVE" ? "audience targeting removed" : "audience targeting updated";
       if (!isSearch && !critType)
@@ -350,8 +411,7 @@ const CHANGE_EVENT_SELECT =
 
 const campIdFrom = (ce: { campaign?: string }) => (ce.campaign?.match(/campaigns\/(\d+)/) ?? [])[1];
 
-// Aggregate the account's change history into plain-English lines (template,
-// not LLM): channel-aware classification, grouped by action and counted.
+// Channel-aware change summary (template fallback): grouped by action, counted.
 async function changeSummary(customerId: string, start: string, end: string) {
   const [chanMap, rows] = await Promise.all([
     campaignChannelMap(customerId),
@@ -378,10 +438,7 @@ async function changeSummary(customerId: string, start: string, end: string) {
 }
 
 /**
- * Detailed weekly optimisations, grouped by campaign (+ channel) + action with
- * counts — the raw material for the report's "Optimisations Made" section.
- * Channel-aware so PMax / Demand Gen changes are labelled correctly. Facts only;
- * the narrative layer turns them into client-facing sentences.
+ * Detailed weekly optimisations, grouped by campaign (+ channel) + action.
  */
 export async function getWeeklyOptimisations(
   customerId: string,
@@ -406,9 +463,7 @@ export async function getWeeklyOptimisations(
     const info = campId ? chanMap[campId] : undefined;
     const action = classifyChange(ce, info?.channel);
     if (!action) continue;
-    const label = info?.name
-      ? `${info.name} [${prettyChannel(info.channel)}]`
-      : "account-level";
+    const label = info?.name ? `${info.name} [${channelLabel(info.channel)}]` : "account-level";
     counts[`${label}|||${action}`] = (counts[`${label}|||${action}`] ?? 0) + 1;
   }
 
@@ -416,16 +471,11 @@ export async function getWeeklyOptimisations(
     .sort((a, b) => b[1] - a[1])
     .map(([key, n]) => {
       const [label, action] = key.split("|||");
-      return label === "account-level"
-        ? `${action} (${n})`
-        : `${label} — ${action} (${n})`;
+      return label === "account-level" ? `${action} (${n})` : `${label} — ${action} (${n})`;
     });
 }
 
-async function buildWeekly(
-  customerId: string,
-  tz: string,
-): Promise<WeeklySummary> {
+async function buildWeekly(customerId: string, tz: string): Promise<WeeklySummary> {
   const w = windows(tz, 7);
   const [cur, prev, changes] = await Promise.all([
     campaignTotals(customerId, w.start, w.end),
@@ -442,55 +492,78 @@ async function buildWeekly(
   };
 }
 
-async function buildDashboard(
-  customerId: string,
-  windowDays: number,
-): Promise<DashboardPayload> {
+async function buildDashboard(customerId: string, windowDays: number): Promise<DashboardPayload> {
   // Account meta first (timezone drives the date math, currency drives display).
   const metaRows = await gaqlSearch(
     customerId,
     "SELECT customer.currency_code, customer.time_zone FROM customer LIMIT 1",
   );
-  const cust = ((metaRows[0]?.customer ?? {}) as {
-    currencyCode?: string;
-    timeZone?: string;
-  });
+  const cust = (metaRows[0]?.customer ?? {}) as { currencyCode?: string; timeZone?: string };
   const currency = cust.currencyCode ?? "USD";
   const timeZone = cust.timeZone ?? "Etc/UTC";
   const w = windows(timeZone, windowDays);
 
-  const [cur, prev, sis, deviceRows, trendRows, termRows, weekly] = await Promise.all([
-    campaignTotals(customerId, w.start, w.end),
-    campaignTotals(customerId, w.prevStart, w.prevEnd),
-    searchImpressionShare(customerId, w.start, w.end),
-    // Device split: all channels. Interaction-date conversions (by-conversion-
-    // date is incompatible with the device segment).
-    gaqlSearch(
-      customerId,
-      `SELECT segments.device, metrics.cost_micros, metrics.conversions
-       FROM campaign WHERE segments.date BETWEEN '${w.start}' AND '${w.end}' AND ${ACTIVE_FILTER}`,
-    ),
-    // Daily trend: all channels, conversions by conversion date (date segment OK).
-    gaqlSearch(
-      customerId,
-      `SELECT segments.date, metrics.cost_micros,
-              metrics.conversions, metrics.conversions_by_conversion_date
-       FROM campaign WHERE segments.date BETWEEN '${w.start}' AND '${w.end}' AND ${ACTIVE_FILTER}
-       ORDER BY segments.date`,
-    ),
-    // Top search terms are inherently Search-only (search_term_view).
-    gaqlSearch(
-      customerId,
-      `SELECT search_term_view.search_term, metrics.cost_micros, metrics.conversions
-       FROM search_term_view WHERE segments.date BETWEEN '${w.start}' AND '${w.end}'
-       ORDER BY metrics.cost_micros DESC LIMIT 10`,
-    ),
-    buildWeekly(customerId, timeZone),
-  ]);
+  // Month-performance range: first of the month 5 months ago → yesterday.
+  const todayTz = new Date(`${ymdInTz(new Date(), timeZone)}T00:00:00Z`);
+  const monthStart = fmt(new Date(Date.UTC(todayTz.getUTCFullYear(), todayTz.getUTCMonth() - 5, 1)));
+  const monthEnd = fmt(addDays(todayTz, -1));
 
-  const ratio = (a: number, b: number) => (b > 0 ? a / b : 0);
+  const [cur, prev, impr, deviceRows, trendRows, termRows, convActionRows, adRows, monthRows, weekly] =
+    await Promise.all([
+      campaignTotals(customerId, w.start, w.end),
+      campaignTotals(customerId, w.prevStart, w.prevEnd),
+      impressionShareSuite(customerId, w.start, w.end),
+      // Device split: all channels, interaction-date conversions (by-time is
+      // incompatible with the device segment).
+      gaqlSearch(
+        customerId,
+        `SELECT segments.device, metrics.cost_micros, metrics.conversions
+         FROM campaign WHERE segments.date BETWEEN '${w.start}' AND '${w.end}' AND ${ACTIVE_FILTER}`,
+      ),
+      // Daily trend: all channels, conversions by conversion date (date segment OK).
+      gaqlSearch(
+        customerId,
+        `SELECT segments.date, metrics.cost_micros,
+                metrics.conversions, metrics.conversions_by_conversion_date
+         FROM campaign WHERE segments.date BETWEEN '${w.start}' AND '${w.end}' AND ${ACTIVE_FILTER}
+         ORDER BY segments.date`,
+      ),
+      // Top search terms (inherently Search-only).
+      gaqlSearch(
+        customerId,
+        `SELECT search_term_view.search_term, metrics.cost_micros, metrics.conversions
+         FROM search_term_view WHERE segments.date BETWEEN '${w.start}' AND '${w.end}'
+         ORDER BY metrics.cost_micros DESC LIMIT 10`,
+      ),
+      // Conversions by action (account-wide).
+      gaqlSearch(
+        customerId,
+        `SELECT segments.conversion_action_name, metrics.conversions, metrics.conversions_value
+         FROM campaign WHERE segments.date BETWEEN '${w.start}' AND '${w.end}' AND ${ACTIVE_FILTER}`,
+      ),
+      // Top performing ads (rank by conversions).
+      gaqlSearch(
+        customerId,
+        `SELECT campaign.name, ad_group_ad.ad.type, ad_group_ad.ad.name,
+                ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.final_urls,
+                metrics.impressions, metrics.clicks, metrics.cost_micros,
+                metrics.conversions, metrics.conversions_value
+         FROM ad_group_ad
+         WHERE segments.date BETWEEN '${w.start}' AND '${w.end}'
+           AND ad_group_ad.status != 'REMOVED' AND campaign.status != 'REMOVED'
+         ORDER BY metrics.conversions DESC LIMIT 10`,
+      ),
+      // Month performance (last 6 calendar months incl. current partial).
+      gaqlSearch(
+        customerId,
+        `SELECT segments.month, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions
+         FROM campaign WHERE segments.date BETWEEN '${monthStart}' AND '${monthEnd}' AND ${ACTIVE_FILTER}
+         ORDER BY segments.month`,
+      ),
+      buildWeekly(customerId, timeZone),
+    ]);
 
-  // Trend (daily) — sum by date; prefer by-conversion-date per day.
+  // Trend (daily) — prefer by-conversion-date per day.
   const trendMap: Record<string, { spend: number; conversions: number }> = {};
   for (const r of trendRows) {
     const date = ((r.segments ?? {}) as { date?: string }).date ?? "";
@@ -518,7 +591,7 @@ async function buildDashboard(
     .map(([device, v]) => ({ device: prettyDevice(device), ...v }))
     .sort((a, b) => b.spend - a.spend);
 
-  const byCampaign = Object.entries(cur.byName)
+  const byCampaign: CampaignRow[] = Object.entries(cur.byName)
     .map(([name, v]) => ({
       name,
       channel: v.channel,
@@ -530,7 +603,7 @@ async function buildDashboard(
     .sort((a, b) => b.spend - a.spend)
     .slice(0, 10);
 
-  const byChannel = Object.entries(cur.byChannel)
+  const byChannel: ChannelRow[] = Object.entries(cur.byChannel)
     .map(([channel, v]) => ({
       channel,
       spend: v.spend,
@@ -540,6 +613,102 @@ async function buildDashboard(
       roas: ratio(v.convValue, v.spend),
     }))
     .sort((a, b) => b.spend - a.spend);
+
+  // Campaign-performance grid: join cur/prev by name, each metric a Kpi.
+  const empty: CampaignAgg = { channel: "", spend: 0, impressions: 0, clicks: 0, conversions: 0, convValue: 0 };
+  const campaignPerformance: CampaignPerf[] = Array.from(
+    new Set([...Object.keys(cur.byName), ...Object.keys(prev.byName)]),
+  )
+    .map((name) => {
+      const c = cur.byName[name] ?? empty;
+      const p = prev.byName[name] ?? empty;
+      return {
+        name,
+        channel: (cur.byName[name] ?? prev.byName[name] ?? empty).channel,
+        clicks: kpi(c.clicks, p.clicks),
+        impressions: kpi(c.impressions, p.impressions),
+        ctr: kpi(ctrOf(c.clicks, c.impressions), ctrOf(p.clicks, p.impressions)),
+        avgCpc: kpi(ratio(c.spend, c.clicks), ratio(p.spend, p.clicks)),
+        cost: kpi(c.spend, p.spend),
+        conversions: kpi(c.conversions, p.conversions),
+        costPerConv: kpi(ratio(c.spend, c.conversions), ratio(p.spend, p.conversions)),
+        convRate: kpi(cvrOf(c.conversions, c.clicks), cvrOf(p.conversions, p.clicks)),
+      };
+    })
+    .sort((a, b) => b.cost.value - a.cost.value)
+    .slice(0, 15);
+
+  // Conversions by action.
+  const actionMap: Record<string, { conversions: number; value: number }> = {};
+  for (const r of convActionRows) {
+    const action = String(((r.segments ?? {}) as { conversionActionName?: string }).conversionActionName ?? "—");
+    const m = (r.metrics ?? {}) as Record<string, unknown>;
+    actionMap[action] ??= { conversions: 0, value: 0 };
+    actionMap[action].conversions += num(m.conversions);
+    actionMap[action].value += num(m.conversionsValue);
+  }
+  const byConversionAction: ConversionAction[] = Object.entries(actionMap)
+    .map(([action, v]) => ({ action, conversions: v.conversions, value: v.value }))
+    .filter((a) => a.conversions > 0)
+    .sort((a, b) => b.conversions - a.conversions);
+
+  // Top ads (parse RSA headlines; fall back to ad name/type).
+  const topAds: TopAd[] = adRows.map((r) => {
+    const aga = (r.adGroupAd ?? {}) as {
+      ad?: {
+        type?: string;
+        name?: string;
+        responsiveSearchAd?: { headlines?: { text?: string }[] };
+        finalUrls?: string[];
+      };
+    };
+    const ad = aga.ad ?? {};
+    const headlines = (ad.responsiveSearchAd?.headlines ?? [])
+      .map((h) => h.text)
+      .filter(Boolean) as string[];
+    const headline = headlines.slice(0, 3).join(" · ") || ad.name || channelLabel(ad.type) || "(ad)";
+    const m = (r.metrics ?? {}) as Record<string, unknown>;
+    const impressions = num(m.impressions);
+    const clicks = num(m.clicks);
+    return {
+      campaign: ((r.campaign ?? {}) as { name?: string }).name ?? "—",
+      headline,
+      finalUrl: ad.finalUrls?.[0] ?? "",
+      impressions,
+      clicks,
+      ctr: ctrOf(clicks, impressions),
+      conversions: num(m.conversions),
+      cost: micros(m.costMicros),
+      convValue: num(m.conversionsValue),
+    };
+  });
+
+  // Month performance.
+  const monthMap: Record<string, { impressions: number; clicks: number; cost: number; conversions: number }> = {};
+  for (const r of monthRows) {
+    const month = String(((r.segments ?? {}) as { month?: string }).month ?? "");
+    if (!month) continue;
+    const m = (r.metrics ?? {}) as Record<string, unknown>;
+    monthMap[month] ??= { impressions: 0, clicks: 0, cost: 0, conversions: 0 };
+    monthMap[month].impressions += num(m.impressions);
+    monthMap[month].clicks += num(m.clicks);
+    monthMap[month].cost += micros(m.costMicros);
+    monthMap[month].conversions += num(m.conversions);
+  }
+  const monthFmt = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "long", year: "numeric" });
+  const monthPerformance: MonthRow[] = Object.entries(monthMap)
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([month, v]) => ({
+      month,
+      label: monthFmt.format(new Date(`${month}T00:00:00Z`)),
+      clicks: v.clicks,
+      impressions: v.impressions,
+      ctr: ctrOf(v.clicks, v.impressions),
+      avgCpc: ratio(v.cost, v.clicks),
+      cost: v.cost,
+      conversions: v.conversions,
+      costPerConv: ratio(v.cost, v.conversions),
+    }));
 
   const topSearchTerms = termRows.map((r) => {
     const m = (r.metrics ?? {}) as Record<string, unknown>;
@@ -555,25 +724,36 @@ async function buildDashboard(
     timeZone,
     window: windowDays,
     range: { start: w.start, end: w.end },
-    hasConversionValue: cur.convValue > 0,
-    convByConversionDate: cur.byConversionDate,
+    prevRange: { start: w.prevStart, end: w.prevEnd },
+    hasConversionValue: cur.convValue > 0 || cur.convValueByTime > 0,
     weekly,
     kpis: {
       spend: kpi(cur.spend, prev.spend),
       impressions: kpi(cur.impressions, prev.impressions),
       clicks: kpi(cur.clicks, prev.clicks),
-      ctr: kpi(ratio(cur.clicks, cur.impressions) * 100, ratio(prev.clicks, prev.impressions) * 100),
+      ctr: kpi(ctrOf(cur.clicks, cur.impressions), ctrOf(prev.clicks, prev.impressions)),
       avgCpc: kpi(ratio(cur.spend, cur.clicks), ratio(prev.spend, prev.clicks)),
       conversions: kpi(cur.conversions, prev.conversions),
       costPerConv: kpi(ratio(cur.spend, cur.conversions), ratio(prev.spend, prev.conversions)),
       convValue: kpi(cur.convValue, prev.convValue),
       roas: kpi(ratio(cur.convValue, cur.spend), ratio(prev.convValue, prev.spend)),
-      convRate: kpi(ratio(cur.conversions, cur.clicks) * 100, ratio(prev.conversions, prev.clicks) * 100),
-      searchImprShare: { value: sis, prev: 0, deltaPct: null }, // no prior IS → no delta
+      convRate: kpi(cvrOf(cur.conversions, cur.clicks), cvrOf(prev.conversions, prev.clicks)),
+      searchImprShare: { value: impr.impressionShare, prev: 0, deltaPct: null },
+      conversionsByTime: kpi(cur.convByTime, prev.convByTime),
+      convValueByTime: kpi(cur.convValueByTime, prev.convValueByTime),
+      roasByTime: kpi(ratio(cur.convValueByTime, cur.spend), ratio(prev.convValueByTime, prev.spend)),
+      aov: kpi(ratio(cur.convValue, cur.conversions), ratio(prev.convValue, prev.conversions)),
     },
+    avgOrdersPerDay: cur.conversions / windowDays,
+    avgRevenuePerDay: cur.convValue / windowDays,
     trend,
     byCampaign,
     byChannel,
+    campaignPerformance,
+    byConversionAction,
+    topAds,
+    impressionShare: impr,
+    monthPerformance,
     byDevice,
     topSearchTerms,
   };
@@ -593,10 +773,7 @@ export async function generateWeeklyReport(customerId: string): Promise<{
     customerId,
     "SELECT customer.currency_code, customer.time_zone FROM customer LIMIT 1",
   );
-  const cust = (metaRows[0]?.customer ?? {}) as {
-    currencyCode?: string;
-    timeZone?: string;
-  };
+  const cust = (metaRows[0]?.customer ?? {}) as { currencyCode?: string; timeZone?: string };
   const currency = cust.currencyCode ?? "USD";
   const timeZone = cust.timeZone ?? "Etc/UTC";
   const weekly = await buildWeekly(customerId, timeZone);
@@ -604,24 +781,14 @@ export async function generateWeeklyReport(customerId: string): Promise<{
 }
 
 /**
- * The bulleted weekly-update text (Slack fallback when no LLM narrative). Pure
- * formatting over an already-computed WeeklySummary — so callers that already
- * have the dashboard payload (which contains `weekly`) can reuse it without
- * re-querying.
+ * The bulleted weekly-update text (Slack fallback when no LLM narrative).
  */
 export function formatWeeklyText(weekly: WeeklySummary, currency: string): string {
   const money = (n: number) =>
-    new Intl.NumberFormat("en", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-    }).format(n);
-  const dec1 = (n: number) =>
-    new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(n);
+    new Intl.NumberFormat("en", { style: "currency", currency, maximumFractionDigits: 0 }).format(n);
+  const dec1 = (n: number) => new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(n);
   const delta = (k: Kpi) =>
-    k.deltaPct == null
-      ? ""
-      : ` (${k.deltaPct >= 0 ? "▲" : "▼"}${Math.abs(k.deltaPct).toFixed(0)}% vs prior week)`;
+    k.deltaPct == null ? "" : ` (${k.deltaPct >= 0 ? "▲" : "▼"}${Math.abs(k.deltaPct).toFixed(0)}% vs prior week)`;
   const changes = weekly.changeLines.length
     ? `Changes this week: ${weekly.changeLines.join(", ")}.`
     : "No account changes this week.";
@@ -647,7 +814,7 @@ function prettyDevice(d: string): string {
 /**
  * Cached dashboard fetch. Reads a fresh-enough payload from ads_report_cache;
  * otherwise queries Google, writes the cache, and returns. Cache failures
- * (e.g. table not migrated yet) degrade gracefully to a live query.
+ * degrade gracefully to a live query.
  */
 export async function getDashboard(
   clientId: string,
