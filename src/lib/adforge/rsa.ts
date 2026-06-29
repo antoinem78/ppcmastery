@@ -77,6 +77,31 @@ export function uspHeadlines(selectedUSPs: SelectedUspCategory[]): Headline[] {
 // pP() -> 5 CTA headlines.
 export const ctaHeadlines = (): Headline[] => CTA_HEADLINES.map(HL);
 
+// Extra distinct keyword-led headline variants, used to backfill an ad after
+// duplicates are removed (so we still reach 15 distinct headlines).
+const extraKeywordHeadlines = (tc: string): string[] =>
+  [tc, `${tc} Experts`, `Local ${tc}`, `Affordable ${tc}`, `${tc} Specialists`, `Trusted ${tc}`, `${tc} Quotes`].filter(
+    (s) => s.length <= HEADLINE_MAX,
+  );
+
+// Assemble up to `target` DISTINCT, non-empty headlines from the primary set,
+// backfilling from a pool. Dedupe is case-insensitive on the final (truncated)
+// text — Google rejects an RSA with duplicate headlines.
+function distinctHeadlines(primary: Headline[], pool: string[], target = 15): Headline[] {
+  const seen = new Set<string>();
+  const out: Headline[] = [];
+  const add = (text: string) => {
+    const t = truncate(text.trim(), HEADLINE_MAX);
+    const key = t.toLowerCase();
+    if (!t || seen.has(key) || out.length >= target) return;
+    seen.add(key);
+    out.push({ id: rid(), text: t });
+  };
+  for (const h of primary) add(h.text);
+  for (const p of pool) add(p);
+  return out;
+}
+
 // Su(adGroup, selectedUSPs, isDki) -> one RSA ad object.
 export function buildAd(
   adGroup: AdGroup,
@@ -85,13 +110,16 @@ export function buildAd(
   services: string[] = [],
   location = "",
 ): Ad {
-  let headlines: Headline[] = [
+  const tc = titleCase((adGroup.keywords[0] && adGroup.keywords[0].text) || "Your Keyword");
+  const primary: Headline[] = [
     ...keywordHeadlines(adGroup, isDki),
     ...uspHeadlines(selectedUSPs),
     ...ctaHeadlines(),
   ];
+  // Dedupe (the fit-to-30 fallback can collapse patterns to the same text) and
+  // backfill with distinct keyword variants + USP fallbacks to reach 15.
+  let headlines = distinctHeadlines(primary, [...extraKeywordHeadlines(tc), ...USP_FALLBACKS], 15);
   while (headlines.length < 15) headlines.push(EMPTY_HL());
-  headlines = headlines.slice(0, 15);
   return {
     id: rid(),
     adGroupId: adGroup.id,

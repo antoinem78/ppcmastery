@@ -22,6 +22,20 @@ const cleanKeyword = (text: string): string => text.replace(/^[[\]"\s]+|[[\]"\s]
 
 const onlyDigits = (s: string): string => s.replace(/\D/g, "");
 
+// Drop empties + case-insensitive duplicates, preserving order.
+function dedupeText(items: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of items) {
+    const key = item.toLowerCase();
+    if (item && !seen.has(key)) {
+      seen.add(key);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
 export class PublishValidationError extends Error {}
 
 /** Build the array of MutateOperation objects for one campaign. Throws PublishValidationError on un-publishable copy. */
@@ -111,16 +125,10 @@ export function buildMutateOperations(
     }
 
     for (const ad of campaign.ads.filter((a) => a.adGroupId === g.id)) {
-      const headlines = ad.headlines
-        .map((h) => truncate(h.text.trim(), HEADLINE_MAX))
-        .filter(Boolean)
-        .slice(0, 15)
-        .map((text) => ({ text }));
-      const descriptions = ad.descriptions
-        .map((d) => truncate(d.text.trim(), DESC_MAX))
-        .filter(Boolean)
-        .slice(0, 4)
-        .map((text) => ({ text }));
+      // Google rejects an RSA with duplicate headlines/descriptions — dedupe
+      // case-insensitively after truncation.
+      const headlines = dedupeText(ad.headlines.map((h) => truncate(h.text.trim(), HEADLINE_MAX))).slice(0, 15).map((text) => ({ text }));
+      const descriptions = dedupeText(ad.descriptions.map((d) => truncate(d.text.trim(), DESC_MAX))).slice(0, 4).map((text) => ({ text }));
       const finalUrl = ad.finalUrl.trim();
 
       if (headlines.length < 3)
