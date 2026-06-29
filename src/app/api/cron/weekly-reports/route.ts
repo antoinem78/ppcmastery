@@ -118,12 +118,12 @@ export async function GET(request: Request) {
         try {
           const { postMessage } = await import("@/lib/integrations/slack");
           const draft = [
-            `📊 *Weekly report draft — ${companyName}* (${dash.weekly.start} → ${dash.weekly.end})`,
+            `📊 *Weekly report draft: ${companyName}* (${dash.weekly.start} to ${dash.weekly.end})`,
             "",
             body,
             "",
             `👉 Client dashboard: ${base}/onboarding/${clientId}`,
-            "_Draft for review — not yet sent to the client._",
+            "_Draft for review, not yet sent to the client._",
           ].join("\n");
           await postMessage(reviewChannel!, draft);
           delivered = true;

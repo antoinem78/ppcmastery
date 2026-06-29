@@ -12,6 +12,13 @@ import type { DashboardPayload, Kpi } from "../google-ads/reporting";
 
 const MODEL = "claude-opus-4-8";
 
+// Hard backstop on top of the prompt rule: strip any long dashes the model
+// still slips in. Em dash -> comma, en dash -> hyphen. No "—"/"–" ever reaches
+// a client report.
+function stripLongDashes(s: string): string {
+  return s.replace(/\s*—\s*/g, ", ").replace(/\s*–\s*/g, "-");
+}
+
 function deltaPhrase(k: Kpi): string {
   if (k.deltaPct == null) return "no prior-period baseline";
   const dir = k.deltaPct >= 0 ? "up" : "down";
@@ -25,9 +32,10 @@ function prettyRange(start: string, end: string): string {
   const mon = (d: Date) => d.toLocaleString("en-US", { timeZone: "UTC", month: "short" });
   const dd = (d: Date) => d.getUTCDate();
   const yy = (d: Date) => d.getUTCFullYear();
-  if (yy(s) === yy(e) && mon(s) === mon(e)) return `${mon(s)} ${dd(s)} – ${dd(e)}, ${yy(e)}`;
-  if (yy(s) === yy(e)) return `${mon(s)} ${dd(s)} – ${mon(e)} ${dd(e)}, ${yy(e)}`;
-  return `${mon(s)} ${dd(s)}, ${yy(s)} – ${mon(e)} ${dd(e)}, ${yy(e)}`;
+  // "to", never a dash (no em/en dashes anywhere in reports).
+  if (yy(s) === yy(e) && mon(s) === mon(e)) return `${mon(s)} ${dd(s)} to ${dd(e)}, ${yy(e)}`;
+  if (yy(s) === yy(e)) return `${mon(s)} ${dd(s)} to ${mon(e)} ${dd(e)}, ${yy(e)}`;
+  return `${mon(s)} ${dd(s)}, ${yy(s)} to ${mon(e)} ${dd(e)}, ${yy(e)}`;
 }
 
 function firstName(contactName?: string | null): string {
@@ -170,6 +178,7 @@ const SYSTEM = (brand: string) =>
 Voice: warm, professional, specific — an experienced human analyst, not a robot. Plain language a business owner understands.
 
 HARD RULES:
+- PUNCTUATION: never use em dashes or en dashes (the long dashes "—" / "–") anywhere. They read as machine-written. Use a comma, a full stop, or parentheses instead, and write a normal hyphen only inside compound words. This matters.
 - Use ONLY the figures in the DATA block. Never invent, estimate, or recompute a number, a percentage, a campaign name, or a metric not present in the data.
 - Quote figures exactly as given (same currency, same rounding).
 - Show BOTH conversion bases where present: interaction-date in the scorecard and the By-Time (conversion-date) lines — always include the By-Time lines that appear in the data, and mention attribution (by-time matures later) in the Summary.
@@ -231,12 +240,12 @@ export async function generateNarrative(
         },
       ],
     });
-    const text = message.content
+    const raw = message.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("")
       .trim();
-    return text || null;
+    return stripLongDashes(raw) || null;
   } catch (e) {
     console.error("Narrative generation failed (falling back to template):", e);
     return null;

@@ -471,7 +471,7 @@ export async function getWeeklyOptimisations(
     .sort((a, b) => b[1] - a[1])
     .map(([key, n]) => {
       const [label, action] = key.split("|||");
-      return label === "account-level" ? `${action} (${n})` : `${label} — ${action} (${n})`;
+      return label === "account-level" ? `${action} (${n})` : `${label}: ${action} (${n})`;
     });
 }
 
