@@ -41,3 +41,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Membrane: V4alpha / V4a / SingularWeb planning docs are governed outside this
+# repo and must never enter its git history (kept on disk only).
+v4alpha-*.md
+singularweb-*.md
+harvest-audit-prompt.md
+PPC_Mastery_Project_Report_v3_June2026.md
