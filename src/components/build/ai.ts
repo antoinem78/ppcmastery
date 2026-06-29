@@ -10,12 +10,14 @@ import type {
   CalloutsResult,
   GenerateContext,
   GenerateRequest,
+  KeywordsResult,
   SitelinksResult,
 } from "@/lib/builder/contract";
 
 function buildContext(): GenerateContext {
   const s = useStore.getState();
   const c = s.campaign;
+  const a = s.siteAnalysis;
   const uspCats = (c?.settings.selectedUSPs ?? s.selectedUSPs) ?? [];
   const usps = uspCats.flatMap((cat) => cat.options.map((o) => o.text));
   return {
@@ -26,6 +28,9 @@ function buildContext(): GenerateContext {
     brandName: c?.settings.marketContext.brandName || "",
     usps,
     avoidTerms: s.onboardingData.avoidKeywords ?? [],
+    websiteUrl: s.websiteUrl || a?.url || "",
+    siteSummary: a?.summary ?? "",
+    pages: a?.pages ?? [],
   };
 }
 
@@ -54,4 +59,8 @@ export function generateSitelinks(): Promise<SitelinksResult> {
 
 export function generateCallouts(): Promise<CalloutsResult> {
   return post<CalloutsResult>({ kind: "callouts", model: currentModel(), context: buildContext() });
+}
+
+export function generateKeywordSuggestions(): Promise<KeywordsResult> {
+  return post<KeywordsResult>({ kind: "keywords", model: currentModel(), context: buildContext() });
 }

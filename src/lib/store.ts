@@ -9,7 +9,7 @@ import {
   USP_CATALOG,
 } from "@/lib/adforge";
 import type { Campaign, SelectedUspCategory, Sitelink, Callout } from "@/lib/adforge";
-import type { BuilderModel } from "@/lib/builder/contract";
+import type { BuilderModel, SiteAnalysis } from "@/lib/builder/contract";
 
 export type CampaignType = "local" | "search";
 
@@ -36,6 +36,9 @@ interface StoreState {
   campaignType: CampaignType | null;
   onboardingCompleted: boolean;
   onboardingData: OnboardingData;
+  websiteUrl: string;
+  siteAnalysis: SiteAnalysis | null;
+  analyzing: boolean;
   conversation: Conversation;
   keywordSource: "smart" | "planner";
   generatedKeywords: string[];
@@ -51,6 +54,8 @@ interface StoreState {
   setCampaignType: (t: CampaignType) => void;
   completeOnboarding: (d: OnboardingData) => void;
   skipOnboarding: () => void;
+  setWebsiteUrl: (url: string) => void;
+  analyzeSite: () => Promise<void>;
   setBusinessType: (id: string, asksModel: boolean) => void;
   setIsOnline: (v: boolean) => void;
   setLocation: (v: string) => void;
@@ -77,7 +82,7 @@ interface StoreState {
   updateDescription: (adId: string, idx: number, text: string) => void;
   updateAdField: (adId: string, field: "finalUrl" | "path1" | "path2", value: string) => void;
   deleteAd: (adId: string) => void;
-  setAdGroupCopy: (adGroupId: string, headlines: string[], descriptions: string[]) => void;
+  setAdGroupCopy: (adGroupId: string, headlines: string[], descriptions: string[], finalUrl?: string) => void;
 
   // assets
   addSitelink: (s: Omit<Sitelink, "id">) => void;
@@ -99,6 +104,9 @@ const initial = {
   campaignType: null as CampaignType | null,
   onboardingCompleted: false,
   onboardingData: { priorityKeywords: [], avoidKeywords: [], answers: {} } as OnboardingData,
+  websiteUrl: "",
+  siteAnalysis: null as SiteAnalysis | null,
+  analyzing: false,
   conversation: freshConversation(),
   keywordSource: "smart" as const,
   generatedKeywords: [] as string[],
@@ -120,6 +128,36 @@ export const useStore = create<StoreState>()(
       completeOnboarding: (d) => set({ onboardingData: d, onboardingCompleted: true }),
       skipOnboarding: () => set({ onboardingCompleted: true }),
 
+      setWebsiteUrl: (url) => set({ websiteUrl: url }),
+      // Crawl + analyse the site, then seed business type (if unset) and keyword
+      // seeds from the result. Throws on failure so the caller can surface it.
+      analyzeSite: async () => {
+        const url = get().websiteUrl.trim();
+        if (!url) return;
+        set({ analyzing: true });
+        try {
+          const model = useSettings.getState().model;
+          const res = await fetch("/api/builder/analyze-site", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url, model }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error((data as { error?: string }).error || "Analysis failed.");
+          const analysis = data.analysis as SiteAnalysis;
+          set((s) => ({
+            siteAnalysis: analysis,
+            websiteUrl: analysis.url,
+            conversation:
+              !s.conversation.businessType && analysis.suggestedBusinessType
+                ? { ...s.conversation, businessType: analysis.suggestedBusinessType }
+                : s.conversation,
+          }));
+        } finally {
+          set({ analyzing: false });
+        }
+      },
+
       setBusinessType: (id, asksModel) =>
         set((s) => ({ conversation: { ...s.conversation, businessType: id, isOnline: asksModel ? s.conversation.isOnline : false } })),
       setIsOnline: (v) => set((s) => ({ conversation: { ...s.conversation, isOnline: v } })),
@@ -134,17 +172,20 @@ export const useStore = create<StoreState>()(
         set((s) => ({ conversation: { ...s.conversation, services: s.conversation.services.filter((x) => x !== svc) } })),
 
       generateKeywordList: () => {
-        const { conversation, onboardingData } = get();
+        const { conversation, onboardingData, siteAnalysis } = get();
         const list = genKeywords({
           services: conversation.services,
           location: conversation.location,
           isOnline: conversation.isOnline,
           priorityKeywords: onboardingData.priorityKeywords,
         });
+        // Fold in keyword seeds discovered from the website (deduped, prepended).
+        const seeds = siteAnalysis?.keywordSeeds ?? [];
+        const merged = [...new Set([...seeds, ...list])];
         const suggested = conversation.services[0]
           ? `${conversation.services[0]} ${conversation.location || "Search"} - Search`
           : "";
-        set((s) => ({ generatedKeywords: list, campaignName: s.campaignName || suggested }));
+        set((s) => ({ generatedKeywords: merged, campaignName: s.campaignName || suggested }));
       },
       setKeywordSource: (s) => set({ keywordSource: s }),
       toggleKeyword: (k) =>
@@ -209,6 +250,7 @@ export const useStore = create<StoreState>()(
           selectedUSPs: s.selectedUSPs,
           avoidKeywords: s.onboardingData.avoidKeywords.join(", "),
           maxCpc: s.maxCpc,
+          websiteUrl: s.websiteUrl,
         });
         set({ campaign, currentStep: 2 });
       },
@@ -235,12 +277,13 @@ export const useStore = create<StoreState>()(
         })),
       // Apply AI-generated copy to every ad in a group. The DKI ad keeps its
       // {KeyWord:...} tag at headline[0]; everything else is replaced.
-      setAdGroupCopy: (adGroupId, headlines, descriptions) =>
+      setAdGroupCopy: (adGroupId, headlines, descriptions, finalUrl) =>
         set((s) => mutateCampaign(s, (c) => {
           for (const ad of c.ads.filter((a) => a.adGroupId === adGroupId)) {
             const dkiTag = ad.headlines[0]?.text.startsWith("{KeyWord:") ? ad.headlines[0].text : null;
             ad.headlines = headlines.map((t, i) => ({ id: rid(), text: i === 0 && dkiTag ? dkiTag : t }));
             ad.descriptions = descriptions.map((t) => ({ id: rid(), text: t }));
+            if (finalUrl) ad.finalUrl = finalUrl;
           }
         })),
 

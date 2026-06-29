@@ -14,9 +14,19 @@ function Bot({ children }: { children: ReactNode }) {
 }
 
 export default function CampaignSetupChat() {
-  const { conversation, setBusinessType, setIsOnline, setLocation, addService, removeService, generateKeywordList, setStep } =
+  const { conversation, websiteUrl, siteAnalysis, analyzing, setWebsiteUrl, analyzeSite, setBusinessType, setIsOnline, setLocation, addService, removeService, generateKeywordList, setStep } =
     useStore();
   const [svc, setSvc] = useState("");
+  const [siteErr, setSiteErr] = useState<string | null>(null);
+
+  const onAnalyze = async () => {
+    setSiteErr(null);
+    try {
+      await analyzeSite();
+    } catch (e) {
+      setSiteErr(e instanceof Error ? e.message : "Could not analyse that site.");
+    }
+  };
 
   const type = BUSINESS_TYPES.find((b) => b.id === conversation.businessType);
   const asksModel = !!type?.asksBusinessModel;
@@ -34,8 +44,41 @@ export default function CampaignSetupChat() {
     <div className="space-y-6 py-6">
       <Bot>
         Hi! I&apos;m your campaign builder assistant. 👋 Let&apos;s create a high-performance Google Ads campaign together.
-        First, what type of business are you advertising?
+        First, what&apos;s your website? It&apos;s optional, but it lets me ground keywords, ad copy, Final URLs and sitelinks in your actual pages.
       </Bot>
+
+      <div className="flex max-w-xl flex-col gap-2 sm:flex-row">
+        <input
+          className={inputClass}
+          value={websiteUrl}
+          onChange={(e) => setWebsiteUrl(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), onAnalyze())}
+          placeholder="e.g. yourbusiness.co.uk"
+        />
+        <Button variant="gradient" className="shrink-0" disabled={analyzing || !websiteUrl.trim()} onClick={onAnalyze}>
+          {analyzing ? "Analysing…" : "✦ Analyse site"}
+        </Button>
+      </div>
+      {siteErr && <div className="max-w-xl rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{siteErr}</div>}
+      {siteAnalysis && (
+        <div className="max-w-xl space-y-3 rounded-2xl border border-success/30 bg-success/5 px-4 py-3 text-sm">
+          <div className="flex items-center gap-2 font-medium text-foreground"><span className="text-success">✓</span> Analysed {siteAnalysis.domain}</div>
+          {siteAnalysis.summary && <p className="text-muted-foreground">{siteAnalysis.summary}</p>}
+          {siteAnalysis.pages.length > 0 && <p className="text-xs text-muted-foreground">Found {siteAnalysis.pages.length} page{siteAnalysis.pages.length === 1 ? "" : "s"} for deep-linking and sitelinks.</p>}
+          {siteAnalysis.suggestedServices.length > 0 && (
+            <div>
+              <div className="mb-1.5 text-xs font-medium text-muted-foreground">Suggested services, tap to add:</div>
+              <div className="flex flex-wrap gap-2">
+                {siteAnalysis.suggestedServices.map((sg) => (
+                  <Chip key={sg} selected={conversation.services.includes(sg)} onClick={() => !conversation.services.includes(sg) && addService(sg)}>{sg}</Chip>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <Bot>What type of business are you advertising?</Bot>
 
       <div className="grid gap-3 sm:grid-cols-3">
         {BUSINESS_TYPES.map((b) => (

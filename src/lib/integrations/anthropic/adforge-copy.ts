@@ -21,6 +21,7 @@ import {
   type BuilderModel,
   type CalloutsResult,
   type GenerateContext,
+  type KeywordsResult,
   type SitelinksResult,
 } from "@/lib/builder/contract";
 
@@ -88,11 +89,27 @@ function contextBlock(c: GenerateContext): string {
     `Business type: ${c.businessType || "unspecified"}`,
     c.isOnline ? `Sells online (national/online reach).` : c.location ? `Local business serving: ${c.location}.` : `Location: unspecified.`,
     c.brandName ? `Brand name: ${c.brandName}` : null,
+    c.websiteUrl ? `Website: ${c.websiteUrl}` : null,
+    c.siteSummary ? `What the business does: ${c.siteSummary}` : null,
     c.services.length ? `Services / products: ${c.services.join(", ")}` : null,
     c.usps.length ? `Unique selling points to weave in: ${c.usps.join("; ")}` : null,
     c.avoidTerms.length ? `Avoid these words entirely: ${c.avoidTerms.join(", ")}` : null,
   ].filter(Boolean);
   return lines.join("\n");
+}
+
+// The real pages on the site, for deep-linking and sitelinks.
+function pagesBlock(c: GenerateContext): string {
+  if (!c.pages.length) return "";
+  return `\nReal pages on the site (url — label):\n${c.pages.map((p) => `${p.url} — ${p.label}${p.category ? ` [${p.category}]` : ""}`).join("\n")}`;
+}
+
+// Pick a safe Final URL: the model's choice only if it's a known page or the
+// homepage; otherwise fall back to the homepage.
+function safeFinalUrl(chosen: unknown, c: GenerateContext): string {
+  const known = new Set([c.websiteUrl, ...c.pages.map((p) => p.url)].filter(Boolean));
+  if (typeof chosen === "string" && known.has(chosen.trim())) return chosen.trim();
+  return c.websiteUrl || (typeof chosen === "string" ? chosen.trim() : "");
 }
 
 async function callModel(model: BuilderModel, userPrompt: string): Promise<unknown> {
@@ -135,7 +152,7 @@ export async function generateAds(
   context: GenerateContext,
   adGroup: AdGroupCtx,
 ): Promise<AdsResult> {
-  const prompt = `${contextBlock(context)}
+  const prompt = `${contextBlock(context)}${pagesBlock(context)}
 
 AD GROUP: "${adGroup.name}"
 Target keyword(s) for this ad group: ${adGroup.keywords.join(", ") || adGroup.name}
@@ -143,10 +160,11 @@ Target keyword(s) for this ad group: ${adGroup.keywords.join(", ") || adGroup.na
 Write copy for ONE Responsive Search Ad targeting this ad group's keyword(s):
 - Exactly 15 headlines (each 30 characters or fewer). Make several closely reflect the target keyword (good for Quality Score), several highlight the USPs/benefits, a couple convey trust, and 2-3 are calls to action.
 - Exactly 4 descriptions (each 90 characters or fewer), each a complete, benefit-led sentence that works alongside any headline.
+- finalUrl: the single most relevant landing page for this ad group's keyword. Choose from the real pages above when one fits; otherwise use the homepage (${context.websiteUrl || "the site"}). Return the exact URL string.
 
-Return JSON: {"headlines": ["..."], "descriptions": ["...", "...", "...", "..."]}`;
+Return JSON: {"headlines": ["..."], "descriptions": ["...", "...", "...", "..."], "finalUrl": "..."}`;
 
-  const raw = (await callModel(model, prompt)) as { headlines?: unknown; descriptions?: unknown };
+  const raw = (await callModel(model, prompt)) as { headlines?: unknown; descriptions?: unknown; finalUrl?: unknown };
 
   let headlines = dedupe(
     asStringArray(raw.headlines)
@@ -163,39 +181,74 @@ Return JSON: {"headlines": ["..."], "descriptions": ["...", "...", "...", "..."]
   ).slice(0, 4);
   while (descriptions.length < 4) descriptions.push(""); // RSA always carries 4 description slots
 
-  return { headlines, descriptions };
+  return { headlines, descriptions, finalUrl: safeFinalUrl(raw.finalUrl, context) };
 }
 
 export async function generateSitelinks(
   model: BuilderModel,
   context: GenerateContext,
 ): Promise<SitelinksResult> {
-  const prompt = `${contextBlock(context)}
+  const hasPages = context.pages.length > 0;
+  const prompt = `${contextBlock(context)}${pagesBlock(context)}
 
-Write 6 sitelink extensions for this advertiser. Each sitelink points to a distinct, plausible page (e.g. services, pricing, about, contact, book/quote, reviews). For each:
-- link text: 25 characters or fewer, Title Case, action- or destination-oriented.
+Write up to 6 sitelink extensions for this advertiser. ${
+    hasPages
+      ? "Anchor each one to a REAL page from the list above (use the exact url). Pick the pages most useful in an ad (services, pricing, booking/contact, key categories); skip legal/login/cart pages."
+      : `Use the homepage (${context.websiteUrl || "the site"}) as the url for every sitelink, since no page list is available.`
+  } For each:
+- linkText: 25 characters or fewer, Title Case, destination-oriented.
+- finalUrl: ${hasPages ? "the exact page url from the list" : `${context.websiteUrl || "the homepage"}`}.
 - two description lines: each 35 characters or fewer, complementary, benefit-led.
-All 6 link texts must be distinct.
+All link texts must be distinct.
 
-Return JSON: {"sitelinks": [{"linkText": "...", "descriptionLine1": "...", "descriptionLine2": "..."}]}`;
+Return JSON: {"sitelinks": [{"linkText": "...", "finalUrl": "...", "descriptionLine1": "...", "descriptionLine2": "..."}]}`;
 
   const raw = (await callModel(model, prompt)) as { sitelinks?: unknown };
   const arr = Array.isArray(raw.sitelinks) ? raw.sitelinks : [];
+  const knownUrls = new Set([context.websiteUrl, ...context.pages.map((p) => p.url)].filter(Boolean));
   const seen = new Set<string>();
   const sitelinks = [];
   for (const item of arr) {
     const o = item as Record<string, unknown>;
     const linkText = truncate(clean(typeof o.linkText === "string" ? o.linkText : ""), SITELINK_TEXT_MAX);
     if (!linkText || seen.has(linkText.toLowerCase())) continue;
+    const chosen = typeof o.finalUrl === "string" ? o.finalUrl.trim() : "";
+    const finalUrl = knownUrls.has(chosen) ? chosen : context.websiteUrl || chosen;
     seen.add(linkText.toLowerCase());
     sitelinks.push({
       linkText,
+      finalUrl,
       descriptionLine1: truncate(clean(typeof o.descriptionLine1 === "string" ? o.descriptionLine1 : ""), SITELINK_DESC_MAX),
       descriptionLine2: truncate(clean(typeof o.descriptionLine2 === "string" ? o.descriptionLine2 : ""), SITELINK_DESC_MAX),
     });
     if (sitelinks.length >= 6) break;
   }
   return { sitelinks };
+}
+
+export async function generateKeywords(
+  model: BuilderModel,
+  context: GenerateContext,
+): Promise<KeywordsResult> {
+  const prompt = `${contextBlock(context)}
+
+Suggest 20-30 high-intent Google Ads search keywords this business should target. Base them on the services, the website content, and what real customers would type with buying intent. ${
+    context.location && !context.isOnline ? `Include some location-qualified variants for ${context.location}.` : ""
+  }
+- lower case, no brackets or quotes, no duplicates.
+- focus on commercial/transactional intent (avoid purely informational queries).
+- avoid any of the words the client asked to exclude.
+
+Return JSON: {"keywords": ["..."]}`;
+
+  const raw = (await callModel(model, prompt)) as { keywords?: unknown };
+  const avoid = new Set(context.avoidTerms.map((t) => t.toLowerCase()));
+  const keywords = dedupe(
+    asStringArray(raw.keywords)
+      .map((k) => clean(k).toLowerCase().replace(/^["'[\]]+|["'[\]]+$/g, "").trim())
+      .filter((k) => k.length > 1 && ![...avoid].some((a) => a && k.includes(a))),
+  ).slice(0, 30);
+  return { keywords };
 }
 
 export async function generateCallouts(

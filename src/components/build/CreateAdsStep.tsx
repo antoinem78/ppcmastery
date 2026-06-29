@@ -21,8 +21,8 @@ export default function CreateAdsStep() {
   async function genGroup(groupId: string) {
     const g = adGroups.find((x) => x.id === groupId);
     if (!g) return;
-    const { headlines, descriptions } = await generateAds({ name: g.name, keywords: g.keywords.map((k) => k.text) });
-    setAdGroupCopy(groupId, headlines, descriptions);
+    const { headlines, descriptions, finalUrl } = await generateAds({ name: g.name, keywords: g.keywords.map((k) => k.text) });
+    setAdGroupCopy(groupId, headlines, descriptions, finalUrl);
   }
 
   async function onGenerateActive() {

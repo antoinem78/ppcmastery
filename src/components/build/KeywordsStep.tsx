@@ -3,12 +3,28 @@ import { useState } from "react";
 import { useStore, useSettings } from "@/lib/store";
 import { USP_CATALOG, campaignNameSuggestions, uspStrength, CURRENCY_SYMBOL } from "@/lib/adforge";
 import { Button, Card, Chip, Field, inputClass, cx } from "@/components/ui";
+import { generateKeywordSuggestions } from "./ai";
 
 export default function KeywordsStep() {
   const s = useStore();
   const expert = useSettings((x) => x.expertMode);
   const [custom, setCustom] = useState("");
   const [customUsp, setCustomUsp] = useState<Record<string, string>>({});
+  const [kwBusy, setKwBusy] = useState(false);
+  const [kwErr, setKwErr] = useState<string | null>(null);
+
+  const onAiKeywords = async () => {
+    setKwErr(null);
+    setKwBusy(true);
+    try {
+      const { keywords } = await generateKeywordSuggestions();
+      keywords.forEach((k) => s.addCustomKeyword(k));
+    } catch (e) {
+      setKwErr(e instanceof Error ? e.message : "Keyword suggestion failed.");
+    } finally {
+      setKwBusy(false);
+    }
+  };
 
   const nameSuggestions = campaignNameSuggestions(s.conversation.services, s.conversation.location);
   const strength = uspStrength(s.selectedUSPs);
@@ -53,7 +69,13 @@ export default function KeywordsStep() {
 
       {/* generated keywords */}
       <Card className="p-5">
-        <h2 className="text-sm font-semibold">Generated Keywords</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">Generated Keywords</h2>
+          <Button variant="secondary" disabled={kwBusy} onClick={onAiKeywords}>
+            {kwBusy ? "Suggesting…" : "✦ AI keyword suggestions"}
+          </Button>
+        </div>
+        {kwErr && <div className="mt-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{kwErr}</div>}
         <div className="mt-3 flex max-h-56 flex-wrap gap-2 overflow-y-auto">
           {s.generatedKeywords.map((k) => (
             <Chip key={k} selected={s.selectedKeywords.includes(k)} onClick={() => s.toggleKeyword(k)}>{k}</Chip>

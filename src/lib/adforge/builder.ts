@@ -36,5 +36,8 @@ export function buildCampaign(input: BuildCampaignInput): Campaign {
   c.settings.uspStrength = uspStrength(c.settings.selectedUSPs);
   c.adGroups = generateAdGroups(input.selectedKeywords, input.maxCpc || 1, input.avoidKeywords || "");
   c.ads = generateDefaultAds(c.adGroups, c.settings.selectedUSPs);
+  // Baseline Final URL = the homepage, so ads are publishable before AI deep-links
+  // each group to a more specific page.
+  if (input.websiteUrl) for (const ad of c.ads) ad.finalUrl = input.websiteUrl;
   return c;
 }

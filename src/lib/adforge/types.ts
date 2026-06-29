@@ -127,4 +127,5 @@ export interface BuildCampaignInput {
   selectedUSPs?: SelectedUspCategory[];
   avoidKeywords?: string;
   maxCpc?: number;
+  websiteUrl?: string;
 }

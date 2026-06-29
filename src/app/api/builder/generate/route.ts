@@ -10,6 +10,7 @@ import { isAgencyAdmin } from "@/lib/auth/roles";
 import {
   generateAds,
   generateCallouts,
+  generateKeywords,
   generateSitelinks,
 } from "@/lib/integrations/anthropic/adforge-copy";
 import type { GenerateRequest } from "@/lib/builder/contract";
@@ -40,6 +41,8 @@ export async function POST(req: Request) {
         return NextResponse.json(await generateSitelinks(model, body.context));
       case "callouts":
         return NextResponse.json(await generateCallouts(model, body.context));
+      case "keywords":
+        return NextResponse.json(await generateKeywords(model, body.context));
       default:
         return NextResponse.json({ error: "Unknown generation kind." }, { status: 400 });
     }
