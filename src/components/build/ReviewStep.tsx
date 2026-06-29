@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
-import { useStore } from "@/lib/store";
-import { qualityScore, recommendations, differentiation, toExport, exportFilename, CURRENCY_SYMBOL } from "@/lib/adforge";
+import { useStore, CURRENCY_SYMBOLS } from "@/lib/store";
+import { qualityScore, recommendations, differentiation, toExport, exportFilename } from "@/lib/adforge";
 import { Button, Card, cx, inputClass } from "@/components/ui";
 
 const typeTag = (t: string) => (t === "skag-exact" ? "SKAG [E]" : t === "skag-phrase" ? 'SKAG "P"' : "STAG");
@@ -9,7 +9,8 @@ const typeTag = (t: string) => (t === "skag-exact" ? "SKAG [E]" : t === "skag-ph
 interface PublishOk { validateOnly: boolean; operationCount: number; campaignResourceName: string | null }
 
 export default function ReviewStep() {
-  const { campaign, setStep } = useStore();
+  const { campaign, currency, setStep } = useStore();
+  const symbol = CURRENCY_SYMBOLS[currency] ?? "$";
   const [showPublish, setShowPublish] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [dailyBudget, setDailyBudget] = useState("10");
@@ -179,7 +180,7 @@ export default function ReviewStep() {
                 <span>{g.keywords.length} kw</span>
                 <span>{g.negativeKeywords.length} neg</span>
                 <span>{campaign.ads.filter((a) => a.adGroupId === g.id).length} ads</span>
-                <span className="tabular-nums">{CURRENCY_SYMBOL}{g.maxCpc.toFixed(2)} CPC</span>
+                <span className="tabular-nums">{symbol}{g.maxCpc.toFixed(2)} CPC</span>
               </div>
             </div>
           ))}
@@ -209,7 +210,7 @@ export default function ReviewStep() {
               <input className={cx(inputClass, "py-2")} value={customerId} onChange={(e) => setCustomerId(e.target.value)} placeholder="123-456-7890" />
             </label>
             <label className="block text-xs">
-              <span className="mb-1 block font-medium text-muted-foreground">Daily budget ({CURRENCY_SYMBOL})</span>
+              <span className="mb-1 block font-medium text-muted-foreground">Daily budget ({symbol})</span>
               <input className={cx(inputClass, "py-2")} value={dailyBudget} onChange={(e) => setDailyBudget(e.target.value)} placeholder="10" inputMode="decimal" />
             </label>
           </div>

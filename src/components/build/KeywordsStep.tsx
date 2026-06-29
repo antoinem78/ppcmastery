@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
-import { useStore, useSettings } from "@/lib/store";
-import { USP_CATALOG, campaignNameSuggestions, uspStrength, CURRENCY_SYMBOL } from "@/lib/adforge";
+import { useStore, useSettings, CURRENCY_SYMBOLS } from "@/lib/store";
+import { USP_CATALOG, campaignNameSuggestions, uspStrength } from "@/lib/adforge";
 import { Button, Card, Chip, Field, inputClass, cx } from "@/components/ui";
 import { generateKeywordSuggestions } from "./ai";
 
@@ -26,6 +26,7 @@ export default function KeywordsStep() {
     }
   };
 
+  const symbol = CURRENCY_SYMBOLS[s.currency] ?? "$";
   const nameSuggestions = campaignNameSuggestions(s.conversation.services, s.conversation.location);
   const strength = uspStrength(s.selectedUSPs);
   const uspCount = s.selectedUSPs.reduce((n, c) => n + c.options.length, 0);
@@ -109,12 +110,19 @@ export default function KeywordsStep() {
               ))}
             </div>
           </Field>
-          <Field label={`Default Max CPC (${CURRENCY_SYMBOL})`}>
+          <Field label={`Default Max CPC (${symbol})`}>
             <div className="flex items-center gap-2">
               <Button variant="secondary" className="px-3" onClick={() => s.setMaxCpc(Math.max(0.1, Math.round((s.maxCpc - 0.5) * 100) / 100))}>−</Button>
               <input className={cx(inputClass, "text-center")} value={s.maxCpc.toFixed(2)} onChange={(e) => s.setMaxCpc(Number(e.target.value) || 0)} />
               <Button variant="secondary" className="px-3" onClick={() => s.setMaxCpc(Math.round((s.maxCpc + 0.5) * 100) / 100)}>+</Button>
             </div>
+          </Field>
+          <Field label="Currency" hint="Symbol shown in the builder. Budgets publish in the target account's own currency.">
+            <select className={inputClass} value={s.currency} onChange={(e) => s.setCurrency(e.target.value)}>
+              {Object.keys(CURRENCY_SYMBOLS).map((code) => (
+                <option key={code} value={code}>{code} ({CURRENCY_SYMBOLS[code]})</option>
+              ))}
+            </select>
           </Field>
           <Field label="Location Targeting">
             <input

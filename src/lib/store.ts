@@ -13,6 +13,17 @@ import type { BuilderModel, SiteAnalysis } from "@/lib/builder/contract";
 
 export type CampaignType = "local" | "search";
 
+// Display currency for budgets/CPC. The published budget micros are interpreted
+// in the target account's own currency; this drives the symbol shown in the UI.
+export const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$",
+  GBP: "£",
+  EUR: "€",
+  AUD: "A$",
+  CAD: "C$",
+  NZD: "NZ$",
+};
+
 interface OnboardingData {
   priorityKeywords: string[];
   avoidKeywords: string[];
@@ -45,6 +56,7 @@ interface StoreState {
   selectedKeywords: string[];
   campaignName: string;
   maxCpc: number;
+  currency: string;
   selectedUSPs: SelectedUspCategory[];
   campaign: Campaign | null;
   currentStep: number; // 0..5
@@ -69,6 +81,7 @@ interface StoreState {
   addCustomKeyword: (k: string) => void;
   setCampaignName: (n: string) => void;
   setMaxCpc: (n: number) => void;
+  setCurrency: (c: string) => void;
   toggleUsp: (categoryId: string, text: string) => void;
   addCustomUsp: (categoryId: string, text: string) => void;
 
@@ -113,6 +126,7 @@ const initial = {
   selectedKeywords: [] as string[],
   campaignName: "",
   maxCpc: 1,
+  currency: "USD",
   selectedUSPs: [] as SelectedUspCategory[],
   campaign: null as Campaign | null,
   currentStep: 0,
@@ -205,6 +219,7 @@ export const useStore = create<StoreState>()(
         }),
       setCampaignName: (n) => set({ campaignName: n }),
       setMaxCpc: (n) => set({ maxCpc: n }),
+      setCurrency: (c) => set({ currency: c }),
       toggleUsp: (categoryId, text) =>
         set((s) => {
           const cats = s.selectedUSPs.map((c) => ({ ...c, options: [...c.options] }));

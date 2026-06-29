@@ -40,13 +40,18 @@ export default function CreateAdsStep() {
   async function onGenerateAll() {
     setError(null);
     setBusy("ALL");
-    try {
-      for (const g of adGroups) await genGroup(g.id);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Generation failed.");
-    } finally {
-      setBusy(null);
+    let failed = 0;
+    let lastErr = "";
+    for (const g of adGroups) {
+      try {
+        await genGroup(g.id);
+      } catch (e) {
+        failed++;
+        lastErr = e instanceof Error ? e.message : "Generation failed.";
+      }
     }
+    setBusy(null);
+    if (failed) setError(`${failed} of ${adGroups.length} ad groups failed (${lastErr}). The rest were generated, try the failed ones again.`);
   }
 
   const busyAny = busy !== null;
