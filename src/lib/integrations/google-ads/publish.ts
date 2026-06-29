@@ -61,6 +61,9 @@ export function buildMutateOperations(
         status: "PAUSED",
         advertisingChannelType: "SEARCH",
         campaignBudget: budgetRN,
+        // Required on campaign create in Google Ads v24 (EU political-ads
+        // transparency). These are commercial ads, not political.
+        containsEuPoliticalAdvertising: "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING",
         manualCpc: {},
         networkSettings: {
           targetGoogleSearch: campaign.settings.networks.googleSearch,
