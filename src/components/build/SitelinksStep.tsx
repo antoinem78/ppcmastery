@@ -2,17 +2,33 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { Button, Card, Field, inputClass } from "@/components/ui";
+import { generateSitelinks } from "./ai";
 
 const empty = { adGroupId: "", linkText: "", finalUrl: "", descriptionLine1: "", descriptionLine2: "", platformTargeting: "All Platforms", devicePreference: "All Devices" };
 
 export default function SitelinksStep() {
-  const { campaign, addSitelink, removeSitelink, setStep } = useStore();
+  const { campaign, addSitelink, addSitelinks, removeSitelink, setStep } = useStore();
   const [form, setForm] = useState(empty);
   const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!campaign) return null;
   const sitelinks = campaign.sitelinks;
   const set = (k: keyof typeof empty, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const onGenerate = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      const { sitelinks: items } = await generateSitelinks();
+      addSitelinks(items.map((s) => ({ ...empty, ...s })));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Generation failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const save = () => {
     if (!form.linkText.trim()) return;
@@ -28,8 +44,13 @@ export default function SitelinksStep() {
           <h1 className="text-2xl font-bold tracking-tight">Sitelinks</h1>
           <p className="text-sm text-muted-foreground">Add sitelinks to provide additional links in your ads.</p>
         </div>
-        <Button onClick={() => setAdding(true)}>+ Add Sitelink</Button>
+        <div className="flex gap-2">
+          <Button variant="gradient" disabled={busy} onClick={onGenerate}>{busy ? "Generating…" : "✦ Generate with AI"}</Button>
+          <Button variant="secondary" onClick={() => setAdding(true)}>+ Add Sitelink</Button>
+        </div>
       </div>
+
+      {error && <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div>}
 
       {adding && (
         <Card className="mt-5 space-y-4 p-5">

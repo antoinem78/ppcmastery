@@ -3,15 +3,31 @@ import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { CALLOUT_SUGGESTIONS, CALLOUT_MAX } from "@/lib/adforge";
 import { Button, Card, Chip, inputClass, cx } from "@/components/ui";
+import { generateCallouts } from "./ai";
 
 export default function CalloutsStep() {
-  const { campaign, addCallout, removeCallout, setStep } = useStore();
+  const { campaign, addCallout, addCallouts, removeCallout, setStep } = useStore();
   const [text, setText] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!campaign) return null;
   const callouts = campaign.callouts;
   const used = new Set(callouts.map((c) => c.text));
+
+  const onGenerate = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      const { callouts: items } = await generateCallouts();
+      addCallouts(items);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Generation failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="py-6">
@@ -20,8 +36,13 @@ export default function CalloutsStep() {
           <h1 className="text-2xl font-bold tracking-tight">Callout Extensions</h1>
           <p className="text-sm text-muted-foreground">Add short, non-clickable callouts to highlight key benefits.</p>
         </div>
-        <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{callouts.length} callouts</span>
+        <div className="flex items-center gap-2">
+          <Button variant="gradient" disabled={busy} onClick={onGenerate}>{busy ? "Generating…" : "✦ Generate with AI"}</Button>
+          <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{callouts.length} callouts</span>
+        </div>
       </div>
+
+      {error && <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div>}
 
       <div className="mt-4 rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
         Max {CALLOUT_MAX} chars per callout · At least 2 recommended · Avoid excessive punctuation &amp; ALL CAPS · No duplicates

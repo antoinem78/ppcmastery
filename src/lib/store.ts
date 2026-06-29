@@ -9,6 +9,7 @@ import {
   USP_CATALOG,
 } from "@/lib/adforge";
 import type { Campaign, SelectedUspCategory, Sitelink, Callout } from "@/lib/adforge";
+import type { BuilderModel } from "@/lib/builder/contract";
 
 export type CampaignType = "local" | "search";
 
@@ -76,11 +77,14 @@ interface StoreState {
   updateDescription: (adId: string, idx: number, text: string) => void;
   updateAdField: (adId: string, field: "finalUrl" | "path1" | "path2", value: string) => void;
   deleteAd: (adId: string) => void;
+  setAdGroupCopy: (adGroupId: string, headlines: string[], descriptions: string[]) => void;
 
   // assets
   addSitelink: (s: Omit<Sitelink, "id">) => void;
+  addSitelinks: (items: Omit<Sitelink, "id">[]) => void;
   removeSitelink: (id: string) => void;
   addCallout: (text: string) => void;
+  addCallouts: (texts: string[]) => void;
   removeCallout: (id: string) => void;
 
   // lifecycle
@@ -229,10 +233,30 @@ export const useStore = create<StoreState>()(
         set((s) => mutateCampaign(s, (c) => {
           c.ads = c.ads.filter((a) => a.id !== adId);
         })),
+      // Apply AI-generated copy to every ad in a group. The DKI ad keeps its
+      // {KeyWord:...} tag at headline[0]; everything else is replaced.
+      setAdGroupCopy: (adGroupId, headlines, descriptions) =>
+        set((s) => mutateCampaign(s, (c) => {
+          for (const ad of c.ads.filter((a) => a.adGroupId === adGroupId)) {
+            const dkiTag = ad.headlines[0]?.text.startsWith("{KeyWord:") ? ad.headlines[0].text : null;
+            ad.headlines = headlines.map((t, i) => ({ id: rid(), text: i === 0 && dkiTag ? dkiTag : t }));
+            ad.descriptions = descriptions.map((t) => ({ id: rid(), text: t }));
+          }
+        })),
 
       addSitelink: (sl) =>
         set((s) => mutateCampaign(s, (c) => {
           c.sitelinks = [...c.sitelinks, { ...sl, id: rid() }];
+        })),
+      addSitelinks: (items) =>
+        set((s) => mutateCampaign(s, (c) => {
+          const existing = new Set(c.sitelinks.map((x) => x.linkText.toLowerCase()));
+          for (const sl of items) {
+            const key = sl.linkText.trim().toLowerCase();
+            if (!key || existing.has(key)) continue;
+            existing.add(key);
+            c.sitelinks.push({ ...sl, id: rid() });
+          }
         })),
       removeSitelink: (id) =>
         set((s) => mutateCampaign(s, (c) => {
@@ -242,6 +266,16 @@ export const useStore = create<StoreState>()(
         set((s) => mutateCampaign(s, (c) => {
           const t = text.trim();
           if (t && !c.callouts.some((x) => x.text === t)) c.callouts = [...c.callouts, { id: rid(), text: t }];
+        })),
+      addCallouts: (texts) =>
+        set((s) => mutateCampaign(s, (c) => {
+          const existing = new Set(c.callouts.map((x) => x.text.toLowerCase()));
+          for (const text of texts) {
+            const t = text.trim();
+            if (!t || existing.has(t.toLowerCase())) continue;
+            existing.add(t.toLowerCase());
+            c.callouts.push({ id: rid(), text: t });
+          }
         })),
       removeCallout: (id) =>
         set((s) => mutateCampaign(s, (c) => {
@@ -284,10 +318,17 @@ const settingsKey = "settings-store";
 interface SettingsState {
   expertMode: boolean;
   toggleExpert: () => void;
+  model: BuilderModel; // which Claude model the AI copy generator uses
+  setModel: (m: BuilderModel) => void;
 }
 export const useSettings = create<SettingsState>()(
   persist(
-    (set) => ({ expertMode: false, toggleExpert: () => set((s) => ({ expertMode: !s.expertMode })) }),
+    (set) => ({
+      expertMode: false,
+      toggleExpert: () => set((s) => ({ expertMode: !s.expertMode })),
+      model: "opus",
+      setModel: (m) => set({ model: m }),
+    }),
     { name: settingsKey, skipHydration: true },
   ),
 );

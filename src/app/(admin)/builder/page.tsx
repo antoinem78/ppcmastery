@@ -100,7 +100,7 @@ function Wizard() {
   const conversation = useStore((s) => s.conversation);
   const selectedKeywords = useStore((s) => s.selectedKeywords);
   const campaign = useStore((s) => s.campaign);
-  const { expertMode, toggleExpert } = useSettings();
+  const { expertMode, toggleExpert, model, setModel } = useSettings();
   const Step = STEPS[currentStep] ?? CampaignSetupChat;
 
   return (
@@ -115,6 +115,10 @@ function Wizard() {
             <Button variant="ghost" className="px-3 py-1.5" disabled={!historyCount} onClick={() => loadFromHistory(0)}>History{historyCount ? ` (${historyCount})` : ""}</Button>
             <Button variant="ghost" className="px-3 py-1.5" onClick={saveAndRestart}>Save</Button>
             <Button variant="ghost" className="px-3 py-1.5" onClick={() => restart(true)}>Restart</Button>
+            <div className="flex items-center overflow-hidden rounded-lg border border-border text-xs font-medium" title="Model used for AI copy generation">
+              <button type="button" onClick={() => setModel("opus")} className={cx("px-2.5 py-1.5", model === "opus" ? "bg-primary/10 text-primary" : "text-muted-foreground")}>Opus 4.8</button>
+              <button type="button" onClick={() => setModel("sonnet")} className={cx("border-l border-border px-2.5 py-1.5", model === "sonnet" ? "bg-primary/10 text-primary" : "text-muted-foreground")}>Sonnet 4.6</button>
+            </div>
             <button type="button" onClick={toggleExpert} className={cx("rounded-lg border px-3 py-1.5 text-xs font-medium", expertMode ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground")}>Expert {expertMode ? "on" : "off"}</button>
           </div>
         </div>

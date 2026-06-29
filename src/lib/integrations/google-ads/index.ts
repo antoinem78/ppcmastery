@@ -116,6 +116,33 @@ export async function sendLinkInvitation(clientCustomerId: string): Promise<stri
 }
 
 /**
+ * Run an atomic googleAds:mutate against a customer account (authenticated as
+ * the MCC via login-customer-id). `operations` is an array of MutateOperation
+ * objects; with `validateOnly` Google checks the request without writing.
+ * Atomic by default (partialFailure:false) — any error rolls back the whole set.
+ */
+export async function googleAdsMutate(
+  customerId: string,
+  operations: Record<string, unknown>[],
+  validateOnly = false,
+): Promise<{ results: Record<string, unknown>[] }> {
+  const res = await fetch(`${API}/customers/${customerId}/googleAds:mutate`, {
+    method: "POST",
+    headers: await adsHeaders(),
+    body: JSON.stringify({ mutateOperations: operations, validateOnly, partialFailure: false }),
+  });
+  const body = await res.json();
+  if (!res.ok) {
+    const text = JSON.stringify(body);
+    const invalid =
+      res.status === 404 ||
+      /NOT_FOUND|INVALID_CUSTOMER|USER_PERMISSION_DENIED|CUSTOMER_NOT_FOUND/i.test(text);
+    throw new GoogleAdsError(extractAdsError(body), invalid);
+  }
+  return body as { results: Record<string, unknown>[] };
+}
+
+/**
  * Run a GAQL query against a customer account (authenticated as the MCC via the
  * login-customer-id header). Returns the raw result rows.
  */

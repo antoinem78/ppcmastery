@@ -3,26 +3,72 @@ import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { Button, Card, Counter, cx, inputClass } from "@/components/ui";
 import { HEADLINE_MAX, DESC_MAX } from "@/lib/adforge";
+import { generateAds } from "./ai";
 
 const headlineKind = (i: number) => (i < 5 ? "keyword" : i < 10 ? "USP" : "CTA");
 
 export default function CreateAdsStep() {
-  const { campaign, updateHeadline, updateDescription, updateAdField, deleteAd, setStep } = useStore();
+  const { campaign, updateHeadline, updateDescription, updateAdField, deleteAd, setAdGroupCopy, setStep } = useStore();
   const [activeId, setActiveId] = useState<string | null>(campaign?.adGroups[0]?.id ?? null);
+  const [busy, setBusy] = useState<string | null>(null); // ad group id, or "ALL"
+  const [error, setError] = useState<string | null>(null);
 
   if (!campaign) return <p className="py-10 text-sm text-muted-foreground">Generate a campaign first.</p>;
   const active = campaign.adGroups.find((g) => g.id === activeId) ?? campaign.adGroups[0];
   const ads = campaign.ads.filter((a) => a.adGroupId === active.id);
+  const adGroups = campaign.adGroups;
+
+  async function genGroup(groupId: string) {
+    const g = adGroups.find((x) => x.id === groupId);
+    if (!g) return;
+    const { headlines, descriptions } = await generateAds({ name: g.name, keywords: g.keywords.map((k) => k.text) });
+    setAdGroupCopy(groupId, headlines, descriptions);
+  }
+
+  async function onGenerateActive() {
+    setError(null);
+    setBusy(active.id);
+    try {
+      await genGroup(active.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Generation failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onGenerateAll() {
+    setError(null);
+    setBusy("ALL");
+    try {
+      for (const g of adGroups) await genGroup(g.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Generation failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const busyAny = busy !== null;
 
   return (
     <div className="py-6">
-      <h1 className="text-2xl font-bold tracking-tight">Create Ads</h1>
-      <p className="text-sm text-muted-foreground">Two responsive search ads per ad group, auto-filled and editable.</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Create Ads</h1>
+          <p className="text-sm text-muted-foreground">Two responsive search ads per ad group. Generate copy with AI, then fine-tune.</p>
+        </div>
+        <Button variant="gradient" disabled={busyAny} onClick={onGenerateAll}>
+          {busy === "ALL" ? "Generating all…" : `✦ Generate all ${adGroups.length} ad groups`}
+        </Button>
+      </div>
+
+      {error && <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div>}
 
       <div className="mt-5 grid gap-5 lg:grid-cols-[16rem_1fr]">
         {/* ad group rail */}
         <div className="max-h-[70vh] space-y-1.5 overflow-y-auto pr-1">
-          {campaign.adGroups.map((g) => {
+          {adGroups.map((g) => {
             const count = campaign.ads.filter((a) => a.adGroupId === g.id).length;
             return (
               <button
@@ -34,7 +80,10 @@ export default function CreateAdsStep() {
                   g.id === active.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted",
                 )}
               >
-                <div className="truncate font-medium">{g.name}</div>
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-medium">{g.name}</span>
+                  {busy === g.id && <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-muted border-t-primary" />}
+                </div>
                 <div className="text-[11px] text-muted-foreground">{count} ads</div>
               </button>
             );
@@ -43,6 +92,12 @@ export default function CreateAdsStep() {
 
         {/* ad editor */}
         <div className="space-y-5">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold">{active.name}</div>
+            <Button variant="secondary" disabled={busyAny} onClick={onGenerateActive}>
+              {busy === active.id ? "Generating…" : "✦ Generate with AI"}
+            </Button>
+          </div>
           {ads.map((ad, ai) => {
             const isDki = ad.headlines[0]?.text.startsWith("{KeyWord:");
             return (

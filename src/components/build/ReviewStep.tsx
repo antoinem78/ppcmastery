@@ -2,13 +2,20 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { qualityScore, recommendations, differentiation, toExport, exportFilename, CURRENCY_SYMBOL } from "@/lib/adforge";
-import { Button, Card, cx } from "@/components/ui";
+import { Button, Card, cx, inputClass } from "@/components/ui";
 
 const typeTag = (t: string) => (t === "skag-exact" ? "SKAG [E]" : t === "skag-phrase" ? 'SKAG "P"' : "STAG");
 
+interface PublishOk { validateOnly: boolean; operationCount: number; campaignResourceName: string | null }
+
 export default function ReviewStep() {
   const { campaign, setStep } = useStore();
-  const [publishMsg, setPublishMsg] = useState(false);
+  const [showPublish, setShowPublish] = useState(false);
+  const [customerId, setCustomerId] = useState("");
+  const [dailyBudget, setDailyBudget] = useState("10");
+  const [busy, setBusy] = useState<"validate" | "publish" | null>(null);
+  const [publishErr, setPublishErr] = useState<string | null>(null);
+  const [publishOk, setPublishOk] = useState<{ kind: "validate" | "publish"; msg: string } | null>(null);
 
   if (!campaign) return null;
   const qs = qualityScore(campaign);
@@ -35,6 +42,32 @@ export default function ReviewStep() {
     a.download = exportFilename(campaign.name);
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const runPublish = async (validateOnly: boolean) => {
+    setPublishErr(null);
+    setPublishOk(null);
+    setBusy(validateOnly ? "validate" : "publish");
+    try {
+      const res = await fetch("/api/builder/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId, dailyBudget: Number(dailyBudget) || 10, validateOnly, campaign }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error((data as { error?: string }).error || "Publish failed.");
+      const ok = data as PublishOk;
+      setPublishOk({
+        kind: validateOnly ? "validate" : "publish",
+        msg: validateOnly
+          ? `Validation passed — ${ok.operationCount} operations are ready to publish.`
+          : `Published (PAUSED) to account ${customerId}. ${ok.campaignResourceName ?? "Campaign created"}. Review and enable it in Google Ads.`,
+      });
+    } catch (e) {
+      setPublishErr(e instanceof Error ? e.message : "Publish failed.");
+    } finally {
+      setBusy(null);
+    }
   };
 
   const buckets = [
@@ -161,17 +194,48 @@ export default function ReviewStep() {
         </div>
       )}
 
-      {publishMsg && (
-        <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
-          <b>Google Ads Integration Required.</b> Connect your Google Ads account to publish campaigns directly. (Not available in this build.)
-        </div>
+      {showPublish && (
+        <Card className="mt-4 space-y-4 p-5">
+          <div>
+            <div className="text-sm font-semibold">Publish to Google Ads</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Creates the campaign <b>PAUSED</b> in the target account so you can review it inside Google Ads before it spends.
+              Validate first (no changes written), then publish. Location and language targeting are set in Google Ads after publish.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block text-xs">
+              <span className="mb-1 block font-medium text-muted-foreground">Target customer ID</span>
+              <input className={cx(inputClass, "py-2")} value={customerId} onChange={(e) => setCustomerId(e.target.value)} placeholder="123-456-7890" />
+            </label>
+            <label className="block text-xs">
+              <span className="mb-1 block font-medium text-muted-foreground">Daily budget ({CURRENCY_SYMBOL})</span>
+              <input className={cx(inputClass, "py-2")} value={dailyBudget} onChange={(e) => setDailyBudget(e.target.value)} placeholder="10" inputMode="decimal" />
+            </label>
+          </div>
+          {publishErr && <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{publishErr}</div>}
+          {publishOk && (
+            <div className={cx("rounded-lg border px-3 py-2 text-sm", publishOk.kind === "publish" ? "border-success/40 bg-success/5 text-foreground" : "border-primary/40 bg-primary/5 text-foreground")}>
+              {publishOk.kind === "publish" ? "✓ " : "✓ "}{publishOk.msg}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" disabled={!customerId.trim() || busy !== null || missingUrls || missingDesc} onClick={() => runPublish(true)}>
+              {busy === "validate" ? "Validating…" : "Validate"}
+            </Button>
+            <Button variant="gradient" disabled={!customerId.trim() || busy !== null || missingUrls || missingDesc} onClick={() => runPublish(false)}>
+              {busy === "publish" ? "Publishing…" : "⬆ Publish (paused)"}
+            </Button>
+          </div>
+          {(missingUrls || missingDesc) && <div className="text-xs text-muted-foreground">Resolve the validation warnings above before publishing.</div>}
+        </Card>
       )}
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <Button variant="secondary" onClick={() => setStep(4)}>← Back</Button>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={exportJson}>⬇ Export JSON</Button>
-          <Button variant="gradient" onClick={() => setPublishMsg(true)}>⬆ Publish to Google Ads</Button>
+          <Button variant="gradient" onClick={() => setShowPublish((v) => !v)}>⬆ Publish to Google Ads</Button>
         </div>
       </div>
     </div>
