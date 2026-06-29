@@ -16,6 +16,7 @@ import { Wordmark } from "@/components/Wordmark";
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/clients", label: "Clients" },
+  { href: "/builder", label: "Campaign Builder" },
 ];
 
 export default async function AdminLayout({
