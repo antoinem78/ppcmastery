@@ -109,7 +109,7 @@ function Wizard() {
         <div className="flex items-center justify-between px-5 py-3">
           <div className="flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent text-lg font-bold text-primary-foreground">⚡</span>
-            <div className="leading-tight"><div className="text-sm font-bold">AdForge</div><div className="text-[11px] text-muted-foreground">Campaign Builder</div></div>
+            <div className="leading-tight"><div className="text-sm font-bold">Campaign Builder</div><div className="text-[11px] text-muted-foreground">Google Ads</div></div>
           </div>
           <div className="flex items-center gap-1.5">
             <Button variant="ghost" className="px-3 py-1.5" disabled={!historyCount} onClick={() => loadFromHistory(0)}>History{historyCount ? ` (${historyCount})` : ""}</Button>
