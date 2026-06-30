@@ -67,13 +67,13 @@ export function evaluateAlerts(s: AccountSummary): AccountAlert[] {
   return alerts;
 }
 
-interface Roster {
+export interface Roster {
   clientId: string;
   company: string;
   reportingId: string;
 }
 
-async function approvedAccounts(): Promise<Roster[]> {
+export async function listApprovedAccounts(): Promise<Roster[]> {
   const supabase = createSupabaseAdminClient();
   const { data: rows } = await supabase
     .from("onboarding_state")
@@ -92,7 +92,7 @@ const severityRank = (a: CommandCenterAccount) =>
   a.alerts.some((x) => x.severity === "critical") ? 0 : a.alerts.some((x) => x.severity === "warning") ? 1 : a.error ? 2 : 3;
 
 export async function getCommandCenter(): Promise<CommandCenter> {
-  const roster = await approvedAccounts();
+  const roster = await listApprovedAccounts();
   const accounts: CommandCenterAccount[] = new Array(roster.length);
 
   let cursor = 0;

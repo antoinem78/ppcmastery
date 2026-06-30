@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { getCommandCenter, type CommandCenterAccount } from "@/lib/command-center";
 import { GenerateAuditButton } from "@/components/GenerateAuditButton";
+import { CommandChat } from "@/components/CommandChat";
 import { entityConfig } from "@/lib/config";
 import type { Kpi } from "@/lib/integrations/google-ads/reporting";
 
@@ -149,6 +150,8 @@ export default async function DashboardPage() {
           </tbody>
         </table>
       </div>
+
+      <CommandChat />
     </div>
   );
 }
