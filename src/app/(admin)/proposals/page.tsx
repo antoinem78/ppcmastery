@@ -5,6 +5,8 @@
 import Link from "next/link";
 import { listProposals, type Proposal, type ProposalAction } from "@/lib/proposals";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
+import { writeEnabled } from "@/lib/integrations/google-ads/write";
+import { ProposalExecuteControls } from "@/components/ProposalExecuteControls";
 import { approveProposal, dismissProposal } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +66,11 @@ function ProposalCard({ p, company, pending }: { p: Proposal; company: string; p
           {p.status} {p.decided_by ? `by ${p.decided_by}` : ""} {p.decided_at ? `· ${new Date(p.decided_at).toLocaleString("en-GB")}` : ""}
         </div>
       )}
+
+      {/* P5-Lite execution controls (executable proposals only). */}
+      {action && (p.status === "approved" || p.status === "applied") && (
+        <ProposalExecuteControls id={p.id} status={p.status} />
+      )}
     </div>
   );
 }
@@ -71,13 +78,21 @@ function ProposalCard({ p, company, pending }: { p: Proposal; company: string; p
 export default async function ProposalsPage() {
   const all = await listProposals();
   const pending = all.filter((p) => p.status === "pending");
-  const decided = all.filter((p) => p.status !== "pending").slice(0, 15);
+  // Surface execute-ready (approved) and applied proposals first.
+  const rank = (s: string) => (s === "approved" ? 0 : s === "applied" ? 1 : 2);
+  const decided = all.filter((p) => p.status !== "pending").sort((a, b) => rank(a.status) - rank(b.status)).slice(0, 20);
   const names = await companyNames(all.map((p) => p.client_id));
+  const writesOn = writeEnabled();
 
   return (
     <div className="p-8 lg:p-10">
       <h1 className="text-2xl font-semibold text-zinc-900">Proposals</h1>
       <p className="mt-1 text-sm text-zinc-500">Optimisation proposals filed by the AI analyst, awaiting your decision. Approving an advisory proposal records the decision; executable proposals can be applied once controlled writes are enabled.</p>
+
+      <div className={`mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${writesOn ? "bg-amber-50 text-amber-700" : "bg-zinc-100 text-zinc-500"}`}>
+        <span className={`h-1.5 w-1.5 rounded-full ${writesOn ? "bg-amber-500" : "bg-zinc-400"}`} />
+        Controlled writes: {writesOn ? "ENABLED (allowlisted accounts only)" : "OFF"}
+      </div>
 
       <h2 className="mt-8 text-sm font-semibold text-zinc-900">Pending ({pending.length})</h2>
       {pending.length === 0 ? (
