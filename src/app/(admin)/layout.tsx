@@ -11,11 +11,13 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth0 } from "@/lib/auth/auth0";
 import { isAgencyAdmin } from "@/lib/auth/roles";
+import { pendingProposalCount } from "@/lib/proposals";
 import { Wordmark } from "@/components/Wordmark";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/clients", label: "Clients" },
+  { href: "/proposals", label: "Proposals" },
   { href: "/builder", label: "Campaign Builder" },
 ];
 
@@ -39,6 +41,9 @@ export default async function AdminLayout({
     return <NoAccess email={email} />;
   }
 
+  // Pending-proposal badge (0 when the table doesn't exist yet).
+  const pendingProposals = await pendingProposalCount();
+
   return (
     <div className="flex min-h-screen">
       <aside className="flex w-60 flex-col bg-[#0B1F3A] text-white">
@@ -50,9 +55,12 @@ export default async function AdminLayout({
             <Link
               key={item.href}
               href={item.href}
-              className="block rounded-md px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+              className="flex items-center justify-between rounded-md px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white"
             >
-              {item.label}
+              <span>{item.label}</span>
+              {item.href === "/proposals" && pendingProposals > 0 && (
+                <span className="rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-semibold text-white">{pendingProposals}</span>
+              )}
             </Link>
           ))}
         </nav>
