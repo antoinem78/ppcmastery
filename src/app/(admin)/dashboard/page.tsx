@@ -4,6 +4,7 @@
 // attention sit at the top.
 import Link from "next/link";
 import { getCommandCenter, type CommandCenterAccount } from "@/lib/command-center";
+import { GenerateAuditButton } from "@/components/GenerateAuditButton";
 import { entityConfig } from "@/lib/config";
 import type { Kpi } from "@/lib/integrations/google-ads/reporting";
 
@@ -114,7 +115,10 @@ export default async function DashboardPage() {
             {cc.accounts.map((a: CommandCenterAccount) => (
               <tr key={a.clientId} className="hover:bg-zinc-50">
                 <td className="px-4 py-3">
-                  <Link href={`/clients/${a.clientId}`} className="font-medium text-zinc-900 hover:text-blue-600">{a.company || a.customerId}</Link>
+                  <div className="flex items-center gap-2">
+                    <Link href={`/clients/${a.clientId}`} className="font-medium text-zinc-900 hover:text-blue-600">{a.company || a.customerId}</Link>
+                    <GenerateAuditButton clientId={a.clientId} company={a.company || a.customerId} compact />
+                  </div>
                 </td>
                 <td className="px-4 py-3">
                   <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${a.status === "action" ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>

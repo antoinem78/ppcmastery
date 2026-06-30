@@ -26,6 +26,12 @@ export const entityConfig = {
   /** VAT number shown on contract/invoice footers (Phase 2). */
   vatNumber: process.env.VAT_NUMBER ?? "",
 
+  /** Optional partner/credential claim printed in the audit document appendix,
+   *  e.g. "Google Premier Partner". EMPTY by default — only set it (via
+   *  AUDIT_PARTNER_CLAIM) for an entity that actually holds the status, else the
+   *  appendix uses neutral "certified Google Ads specialists" wording. */
+  partnerClaim: process.env.AUDIT_PARTNER_CLAIM ?? "",
+
   /** Reporting-only deployment (e.g. "MCC Command Center" for BJ PPC's existing
    *  premium clients): no onboarding funnel — only "Add managed account" +
    *  dashboards + weekly reports. The full onboarding portal leaves this off. */
