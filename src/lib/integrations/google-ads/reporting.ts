@@ -126,6 +126,22 @@ export interface DashboardPayload {
   topSearchTerms: { term: string; spend: number; conversions: number }[];
 }
 
+// Lightweight per-account summary for the Command Center roll-up: the most
+// recent complete Mon-Sun week vs the prior week. Cheap (one meta query + two
+// totals queries) so it can fan out across many accounts.
+export interface AccountSummary {
+  customerId: string;
+  currency: string;
+  timeZone: string;
+  range: { start: string; end: string };
+  hasConversionValue: boolean;
+  spend: Kpi;
+  conversions: Kpi;
+  costPerConv: Kpi;
+  convValue: Kpi;
+  roas: Kpi;
+}
+
 const num = (v: unknown) => (typeof v === "number" ? v : Number(v ?? 0)) || 0;
 const micros = (v: unknown) => num(v) / 1_000_000;
 const ratio = (a: number, b: number) => (b > 0 ? a / b : 0);
@@ -816,6 +832,37 @@ function prettyDevice(d: string): string {
  * otherwise queries Google, writes the cache, and returns. Cache failures
  * degrade gracefully to a live query.
  */
+// Cross-account roll-up source. One customer-meta query + two campaignTotals
+// queries (current vs prior Mon-Sun week). Much cheaper than getDashboard.
+export async function getAccountSummary(customerId: string): Promise<AccountSummary> {
+  const metaRows = await gaqlSearch(
+    customerId,
+    "SELECT customer.currency_code, customer.time_zone FROM customer LIMIT 1",
+  );
+  const cust = (metaRows[0]?.customer ?? {}) as { currencyCode?: string; timeZone?: string };
+  const currency = cust.currencyCode ?? "USD";
+  const timeZone = cust.timeZone ?? "Etc/UTC";
+  const w = windows(timeZone, 7);
+  const [cur, prev] = await Promise.all([
+    campaignTotals(customerId, w.start, w.end),
+    campaignTotals(customerId, w.prevStart, w.prevEnd),
+  ]);
+  const cpc = (t: Totals) => (t.conversions > 0 ? t.spend / t.conversions : 0);
+  const roasOf = (t: Totals) => (t.spend > 0 ? t.convValue / t.spend : 0);
+  return {
+    customerId,
+    currency,
+    timeZone,
+    range: { start: w.start, end: w.end },
+    hasConversionValue: cur.convValue > 0 || prev.convValue > 0,
+    spend: kpi(cur.spend, prev.spend),
+    conversions: kpi(cur.conversions, prev.conversions),
+    costPerConv: kpi(cpc(cur), cpc(prev)),
+    convValue: kpi(cur.convValue, prev.convValue),
+    roas: kpi(roasOf(cur), roasOf(prev)),
+  };
+}
+
 export async function getDashboard(
   clientId: string,
   customerId: string,
