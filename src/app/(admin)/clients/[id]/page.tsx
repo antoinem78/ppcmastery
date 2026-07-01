@@ -17,6 +17,7 @@ import {
   cancelClientSubscription,
   resumeClientSubscription,
   markPaidManually,
+  saveReportPrompt,
 } from "../actions";
 import {
   getDashboard,
@@ -29,6 +30,7 @@ import { GenerateAuditButton } from "@/components/GenerateAuditButton";
 export const dynamic = "force-dynamic";
 
 function parseRange(raw: string | undefined): ReportWindow {
+  if (raw === "month" || raw === "0") return 0; // last complete calendar month
   const n = Number(raw);
   // Default to the 7-day "Week" — this is a weekly report tool; 28d misleads.
   return n === 28 || n === 90 ? n : 7;
@@ -399,6 +401,31 @@ export default async function ClientDetailPage({
           </div>
           <AdsDashboard payload={dashboard} basePath={`/clients/${id}`} range={range} />
         </div>
+      )}
+
+      {/* Per-account report narrative prompt */}
+      {adApproved && (
+        <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <h2 className="text-sm font-semibold text-zinc-900">Report narrative prompt</h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            Account-specific guidance appended to the AI weekly/monthly narrative for this client. It never
+            overrides the hard rules (no invented figures, no em dashes, correct channel attribution).
+          </p>
+          <form action={saveReportPrompt.bind(null, id)} className="mt-3">
+            <textarea
+              name="report_prompt"
+              rows={5}
+              defaultValue={client.report_prompt ?? ""}
+              placeholder="e.g. Ecommerce account, lead with revenue and ROAS. Note the spring promotion. Concise, data-first tone."
+              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-800 focus:border-blue-400 focus:outline-none"
+            />
+            <div className="mt-2 flex justify-end">
+              <button type="submit" className="rounded-md bg-[#0B1F3A] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0B1F3A]/90">
+                Save prompt
+              </button>
+            </div>
+          </form>
+        </section>
       )}
 
       {/* Questionnaire answers */}

@@ -34,6 +34,7 @@ import { getDashboard, type DashboardPayload, type ReportWindow } from "@/lib/in
 import { AdsDashboard } from "@/components/AdsDashboard";
 
 function parseRange(raw: string | undefined): ReportWindow {
+  if (raw === "month" || raw === "0") return 0; // last complete calendar month
   const n = Number(raw);
   // Default to the 7-day "Week" — this is a weekly report tool; 28d misleads.
   return n === 28 || n === 90 ? n : 7;

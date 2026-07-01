@@ -13,6 +13,7 @@ import {
   getDashboard,
   getWeeklyOptimisations,
   formatWeeklyText,
+  MONTH_WINDOW,
 } from "@/lib/integrations/google-ads/reporting";
 import { generateNarrative } from "@/lib/integrations/anthropic/narrative";
 
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
   const { data: rows } = await supabase
     .from("onboarding_state")
     .select(
-      "client_id, google_ads_customer_id, google_ads_reporting_customer_id, clients(company_name, contact_name)",
+      "client_id, google_ads_customer_id, google_ads_reporting_customer_id, clients(company_name, contact_name, report_prompt)",
     )
     .eq("ad_link_status", "approved")
     .not("google_ads_customer_id", "is", null);
@@ -46,6 +47,10 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const onlyClientId = url.searchParams.get("clientId");
   const onlyCompany = url.searchParams.get("company");
+  // ?window=month → last complete calendar month vs the month before (monthly
+  // narrative). Default is the Mon-Sun weekly report.
+  const isMonthly = url.searchParams.get("window") === "month";
+  const win = isMonthly ? MONTH_WINDOW : 7;
   const companyOf = (r: { clients?: unknown }) =>
     (r.clients as unknown as { company_name?: string } | null)?.company_name ?? "";
 
@@ -86,24 +91,26 @@ export async function GET(request: Request) {
     const reportingId =
       (row.google_ads_reporting_customer_id as string | null) ?? customerId;
     const clientMeta = row.clients as unknown as
-      | { company_name?: string; contact_name?: string | null }
+      | { company_name?: string; contact_name?: string | null; report_prompt?: string | null }
       | null;
     const companyName = clientMeta?.company_name ?? "";
     const contactName = clientMeta?.contact_name ?? null;
+    const reportPrompt = clientMeta?.report_prompt ?? null;
 
     try {
-      // One dashboard pull (cached) gives us the verified weekly numbers + the
-      // material for the narrative — no separate weekly recompute.
-      const dash = await getDashboard(clientId, reportingId, 7);
-      const optimisations = await getWeeklyOptimisations(
-        reportingId,
-        dash.weekly.start,
-        dash.weekly.end,
-      );
+      // One dashboard pull (cached) gives us the verified numbers + the material
+      // for the narrative. The period is the Mon-Sun week, or the last calendar
+      // month when window=month.
+      const dash = await getDashboard(clientId, reportingId, win);
+      const period = isMonthly ? dash.range : dash.weekly;
+      const optimisations = await getWeeklyOptimisations(reportingId, period.start, period.end);
 
       let narrative: string | null = null;
       try {
-        narrative = await generateNarrative(dash, companyName, optimisations, contactName);
+        narrative = await generateNarrative(dash, companyName, optimisations, contactName, {
+          accountPrompt: reportPrompt,
+          cadence: isMonthly ? "monthly" : "weekly",
+        });
       } catch (e) {
         console.error(`Narrative skipped for ${clientId}:`, e);
       }
@@ -118,7 +125,7 @@ export async function GET(request: Request) {
         try {
           const { postMessage } = await import("@/lib/integrations/slack");
           const draft = [
-            `📊 *Weekly report draft: ${companyName}* (${dash.weekly.start} to ${dash.weekly.end})`,
+            `📊 *${isMonthly ? "Monthly" : "Weekly"} report draft: ${companyName}* (${period.start} to ${period.end})`,
             "",
             body,
             "",
@@ -137,9 +144,9 @@ export async function GET(request: Request) {
       try {
         await supabase.from("weekly_reports").insert({
           client_id: clientId,
-          period_start: dash.weekly.start,
-          period_end: dash.weekly.end,
-          payload: { ...dash.weekly, narrative },
+          period_start: period.start,
+          period_end: period.end,
+          payload: { ...dash.weekly, narrative, cadence: isMonthly ? "monthly" : "weekly" },
         });
       } catch {
         /* table may not exist yet */

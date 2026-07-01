@@ -11,7 +11,14 @@ import type {
   MonthRow,
   ImpressionShare,
 } from "@/lib/integrations/google-ads/reporting";
-import { REPORT_WINDOWS } from "@/lib/integrations/google-ads/reporting";
+
+// Selectable ranges. 0 = last complete calendar month vs the month before.
+const RANGES: { w: number; label: string; q: string }[] = [
+  { w: 7, label: "Week", q: "7" },
+  { w: 28, label: "28d", q: "28" },
+  { w: 90, label: "90d", q: "90" },
+  { w: 0, label: "Month", q: "month" },
+];
 
 function makeFmt(currency: string) {
   return {
@@ -27,8 +34,6 @@ function makeFmt(currency: string) {
     pct: (n: number) => `${new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(n)}%`,
   };
 }
-
-const rangeLabel = (w: number) => (w === 7 ? "Week" : `${w}d`);
 
 export function AdsDashboard({
   payload,
@@ -65,15 +70,15 @@ export function AdsDashboard({
           </p>
         </div>
         <div className="flex gap-1 rounded-lg bg-white/10 p-1">
-          {REPORT_WINDOWS.map((w) => (
+          {RANGES.map((r) => (
             <a
-              key={w}
-              href={`${basePath}?range=${w}`}
+              key={r.w}
+              href={`${basePath}?range=${r.q}`}
               className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                w === range ? "bg-white text-[#0B1F3A]" : "text-white/70 hover:text-white"
+                r.w === range ? "bg-white text-[#0B1F3A]" : "text-white/70 hover:text-white"
               }`}
             >
-              {rangeLabel(w)}
+              {r.label}
             </a>
           ))}
         </div>
@@ -180,13 +185,13 @@ export function AdsDashboard({
           />
           <Breakdown
             title="Top search terms (Search only)"
-            cols={["Term", "Spend", "Conv."]}
+            cols={["Term", "Conv.", "Spend"]}
             rows={payload.topSearchTerms.map((t) => ({
               label: t.term,
-              weight: t.spend,
-              cells: [money(t.spend), dec(t.conversions)],
+              weight: t.conversions,
+              cells: [dec(t.conversions), money(t.spend)],
             }))}
-            maxWeight={Math.max(...payload.topSearchTerms.map((t) => t.spend), 1)}
+            maxWeight={Math.max(...payload.topSearchTerms.map((t) => t.conversions), 1)}
           />
         </div>
       </div>
@@ -340,6 +345,9 @@ function TrendChart({
       maximumFractionDigits: 1,
     }).format(v);
   const convAxis = (v: number) => new Intl.NumberFormat("en", { maximumFractionDigits: 0 }).format(v);
+  const tipMoney = (v: number) =>
+    new Intl.NumberFormat("en", { style: "currency", currency, maximumFractionDigits: 2 }).format(v);
+  const tipConv = (v: number) => new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(v);
   return (
     <div className="mt-2">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
@@ -379,6 +387,12 @@ function TrendChart({
         <text x={W - MR} y={H - 8} textAnchor="end" className="fill-zinc-400" fontSize="10">
           {trend[trend.length - 1].date}
         </text>
+        {/* Transparent per-day hit areas: native hover tooltip (spend + conv). */}
+        {trend.map((t, i) => (
+          <rect key={`hit-${i}`} x={ML + band * i} y={MT} width={band} height={plotH} fill="transparent">
+            <title>{`${t.date}\nSpend: ${tipMoney(t.spend)}\nConversions: ${tipConv(t.conversions)}`}</title>
+          </rect>
+        ))}
       </svg>
     </div>
   );
@@ -455,6 +469,7 @@ function TopAdsTable({ ads, currency, guard }: { ads: TopAd[]; currency: string;
                   <div className="break-words text-zinc-800">{a.headline}</div>
                   <div className="mt-0.5 truncate text-[11px] text-zinc-400">
                     {a.campaign}
+                    {a.adGroup ? ` · ${a.adGroup}` : ""}
                     {a.finalUrl ? ` · ${a.finalUrl}` : ""}
                   </div>
                 </td>

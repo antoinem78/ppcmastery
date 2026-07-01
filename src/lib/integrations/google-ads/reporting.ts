@@ -15,7 +15,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { gaqlSearch } from "./index";
 
 export const REPORT_WINDOWS = [7, 28, 90] as const;
-export type ReportWindow = (typeof REPORT_WINDOWS)[number];
+export const MONTH_WINDOW = 0; // sentinel: last complete calendar month vs the month before
+export type ReportWindow = (typeof REPORT_WINDOWS)[number] | typeof MONTH_WINDOW;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
 export interface Kpi {
@@ -69,6 +70,7 @@ export interface ConversionAction {
 }
 export interface TopAd {
   campaign: string;
+  adGroup: string;
   headline: string;
   finalUrl: string;
   impressions: number;
@@ -168,6 +170,16 @@ const addDays = (d: Date, n: number) => {
 // (the weekly report period); 28/90 stay rolling "last N days excluding today".
 function windows(tz: string, windowDays: number) {
   const today = new Date(`${ymdInTz(new Date(), tz)}T00:00:00Z`);
+  if (windowDays === MONTH_WINDOW) {
+    // Last COMPLETE calendar month vs the month before it.
+    const y = today.getUTCFullYear();
+    const m = today.getUTCMonth();
+    const start = fmt(new Date(Date.UTC(y, m - 1, 1))); // first of last month
+    const end = fmt(new Date(Date.UTC(y, m, 0))); // last day of last month
+    const prevStart = fmt(new Date(Date.UTC(y, m - 2, 1))); // first of the month before
+    const prevEnd = fmt(new Date(Date.UTC(y, m - 1, 0))); // last day of the month before
+    return { start, end, prevStart, prevEnd };
+  }
   if (windowDays === 7) {
     const dow = today.getUTCDay(); // 0=Sun … 6=Sat
     const backToSunday = dow === 0 ? 7 : dow; // days back to last completed Sunday
@@ -518,6 +530,8 @@ async function buildDashboard(customerId: string, windowDays: number): Promise<D
   const currency = cust.currencyCode ?? "USD";
   const timeZone = cust.timeZone ?? "Etc/UTC";
   const w = windows(timeZone, windowDays);
+  // Actual number of days in the window (windowDays is 0 for the month view).
+  const spanDays = Math.max(1, Math.round((new Date(w.end).getTime() - new Date(w.start).getTime()) / 86_400_000) + 1);
 
   // Month-performance range: first of the month 5 months ago → yesterday.
   const todayTz = new Date(`${ymdInTz(new Date(), timeZone)}T00:00:00Z`);
@@ -544,12 +558,12 @@ async function buildDashboard(customerId: string, windowDays: number): Promise<D
          FROM campaign WHERE segments.date BETWEEN '${w.start}' AND '${w.end}' AND ${ACTIVE_FILTER}
          ORDER BY segments.date`,
       ),
-      // Top search terms (inherently Search-only).
+      // Top search terms (inherently Search-only) — ranked by conversion volume.
       gaqlSearch(
         customerId,
         `SELECT search_term_view.search_term, metrics.cost_micros, metrics.conversions
          FROM search_term_view WHERE segments.date BETWEEN '${w.start}' AND '${w.end}'
-         ORDER BY metrics.cost_micros DESC LIMIT 10`,
+         ORDER BY metrics.conversions DESC, metrics.cost_micros DESC LIMIT 10`,
       ),
       // Conversions by action (account-wide).
       gaqlSearch(
@@ -560,14 +574,14 @@ async function buildDashboard(customerId: string, windowDays: number): Promise<D
       // Top performing ads (rank by conversions).
       gaqlSearch(
         customerId,
-        `SELECT campaign.name, ad_group_ad.ad.type, ad_group_ad.ad.name,
+        `SELECT campaign.name, ad_group.name, ad_group_ad.ad.type, ad_group_ad.ad.name,
                 ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.final_urls,
                 metrics.impressions, metrics.clicks, metrics.cost_micros,
                 metrics.conversions, metrics.conversions_value
          FROM ad_group_ad
          WHERE segments.date BETWEEN '${w.start}' AND '${w.end}'
            AND ad_group_ad.status != 'REMOVED' AND campaign.status != 'REMOVED'
-         ORDER BY metrics.conversions DESC LIMIT 10`,
+         ORDER BY metrics.conversions DESC LIMIT 25`,
       ),
       // Month performance (last 6 calendar months incl. current partial).
       gaqlSearch(
@@ -616,6 +630,7 @@ async function buildDashboard(customerId: string, windowDays: number): Promise<D
       costPerConv: ratio(v.spend, v.conversions),
       roas: ratio(v.convValue, v.spend),
     }))
+    .filter((c) => c.spend > 0)
     .sort((a, b) => b.spend - a.spend)
     .slice(0, 10);
 
@@ -651,6 +666,7 @@ async function buildDashboard(customerId: string, windowDays: number): Promise<D
         convRate: kpi(cvrOf(c.conversions, c.clicks), cvrOf(p.conversions, p.clicks)),
       };
     })
+    .filter((r) => r.cost.value > 0) // ignore 0-spend campaigns
     .sort((a, b) => b.cost.value - a.cost.value)
     .slice(0, 15);
 
@@ -668,36 +684,41 @@ async function buildDashboard(customerId: string, windowDays: number): Promise<D
     .filter((a) => a.conversions > 0)
     .sort((a, b) => b.conversions - a.conversions);
 
-  // Top ads (parse RSA headlines; fall back to ad name/type).
-  const topAds: TopAd[] = adRows.map((r) => {
-    const aga = (r.adGroupAd ?? {}) as {
-      ad?: {
-        type?: string;
-        name?: string;
-        responsiveSearchAd?: { headlines?: { text?: string }[] };
-        finalUrls?: string[];
+  // Top ads (parse RSA headlines; fall back to ad name/type). Ignore 0-spend ads
+  // and cap at 10 after filtering.
+  const topAds: TopAd[] = adRows
+    .map((r) => {
+      const aga = (r.adGroupAd ?? {}) as {
+        ad?: {
+          type?: string;
+          name?: string;
+          responsiveSearchAd?: { headlines?: { text?: string }[] };
+          finalUrls?: string[];
+        };
       };
-    };
-    const ad = aga.ad ?? {};
-    const headlines = (ad.responsiveSearchAd?.headlines ?? [])
-      .map((h) => h.text)
-      .filter(Boolean) as string[];
-    const headline = headlines.slice(0, 3).join(" · ") || ad.name || channelLabel(ad.type) || "(ad)";
-    const m = (r.metrics ?? {}) as Record<string, unknown>;
-    const impressions = num(m.impressions);
-    const clicks = num(m.clicks);
-    return {
-      campaign: ((r.campaign ?? {}) as { name?: string }).name ?? "—",
-      headline,
-      finalUrl: ad.finalUrls?.[0] ?? "",
-      impressions,
-      clicks,
-      ctr: ctrOf(clicks, impressions),
-      conversions: num(m.conversions),
-      cost: micros(m.costMicros),
-      convValue: num(m.conversionsValue),
-    };
-  });
+      const ad = aga.ad ?? {};
+      const headlines = (ad.responsiveSearchAd?.headlines ?? [])
+        .map((h) => h.text)
+        .filter(Boolean) as string[];
+      const headline = headlines.slice(0, 3).join(" · ") || ad.name || channelLabel(ad.type) || "(ad)";
+      const m = (r.metrics ?? {}) as Record<string, unknown>;
+      const impressions = num(m.impressions);
+      const clicks = num(m.clicks);
+      return {
+        campaign: ((r.campaign ?? {}) as { name?: string }).name ?? "—",
+        adGroup: ((r.adGroup ?? {}) as { name?: string }).name ?? "",
+        headline,
+        finalUrl: ad.finalUrls?.[0] ?? "",
+        impressions,
+        clicks,
+        ctr: ctrOf(clicks, impressions),
+        conversions: num(m.conversions),
+        cost: micros(m.costMicros),
+        convValue: num(m.conversionsValue),
+      };
+    })
+    .filter((a) => a.cost > 0)
+    .slice(0, 10);
 
   // Month performance.
   const monthMap: Record<string, { impressions: number; clicks: number; cost: number; conversions: number }> = {};
@@ -760,8 +781,8 @@ async function buildDashboard(customerId: string, windowDays: number): Promise<D
       roasByTime: kpi(ratio(cur.convValueByTime, cur.spend), ratio(prev.convValueByTime, prev.spend)),
       aov: kpi(ratio(cur.convValue, cur.conversions), ratio(prev.convValue, prev.conversions)),
     },
-    avgOrdersPerDay: cur.conversions / windowDays,
-    avgRevenuePerDay: cur.convValue / windowDays,
+    avgOrdersPerDay: cur.conversions / spanDays,
+    avgRevenuePerDay: cur.convValue / spanDays,
     trend,
     byCampaign,
     byChannel,

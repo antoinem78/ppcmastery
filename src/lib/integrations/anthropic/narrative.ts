@@ -16,7 +16,10 @@ const MODEL = "claude-opus-4-8";
 // still slips in. Em dash -> comma, en dash -> hyphen. No "—"/"–" ever reaches
 // a client report.
 function stripLongDashes(s: string): string {
-  return s.replace(/\s*—\s*/g, ", ").replace(/\s*–\s*/g, "-");
+  // Catch every long-dash variant, not just em/en: em (—), horizontal bar (―),
+  // en (–), figure dash (‒), and the minus sign (−). Em-like -> comma; the
+  // shorter ones -> hyphen. No long dash ever reaches a client report.
+  return s.replace(/\s*[—―]\s*/g, ", ").replace(/\s*[–‒−]\s*/g, "-");
 }
 
 function deltaPhrase(k: Kpi): string {
@@ -122,19 +125,32 @@ function factsBlock(
     .filter((c) => c.conversions > 0)
     .sort((a, b) => b.conversions - a.conversions)
     .slice(0, 5);
+  const val = (c: { roas: number; spend: number }) => c.roas * c.spend; // convValue = ROAS * spend
+  const roasBit = (c: { roas: number; spend: number }) => (guard ? `, value ${money(val(c))}, ROAS ${dec(c.roas, 2)}x` : "");
   if (converting.length) {
     lines.push(``, `TOP CONVERTING CAMPAIGNS (by conversions; channel in brackets):`);
     for (const c of converting) {
-      lines.push(`- ${c.name}${ch(c)}: ${dec(c.conversions)} conversions, spend ${money(c.spend)}, ${money(c.costPerConv, 2)}/conv`);
+      lines.push(`- ${c.name}${ch(c)}: ${dec(c.conversions)} conversions, spend ${money(c.spend)}, ${money(c.costPerConv, 2)}/conv${roasBit(c)}`);
     }
   } else {
     lines.push(``, `TOP CONVERTING CAMPAIGNS: none recorded a conversion this period.`);
   }
 
+  // When value is tracked, the standout is judged by VALUE/ROAS, not conv count.
+  if (guard) {
+    const byValue = [...p.byCampaign].filter((c) => val(c) > 0).sort((a, b) => val(b) - val(a)).slice(0, 5);
+    if (byValue.length) {
+      lines.push(``, `TOP CAMPAIGNS BY CONVERSION VALUE (the true standout ranking when value is tracked):`);
+      for (const c of byValue) {
+        lines.push(`- ${c.name}${ch(c)}: value ${money(val(c))}, ROAS ${dec(c.roas, 2)}x, ${dec(c.conversions)} conversions, spend ${money(c.spend)}`);
+      }
+    }
+  }
+
   if (p.byCampaign.length) {
     lines.push(``, `TOP CAMPAIGNS (by spend; channel in brackets):`);
     for (const c of p.byCampaign.slice(0, 8)) {
-      lines.push(`- ${c.name}${ch(c)}: spend ${money(c.spend)}, ${dec(c.conversions)} conversions, ${money(c.costPerConv, 2)}/conv`);
+      lines.push(`- ${c.name}${ch(c)}: spend ${money(c.spend)}, ${dec(c.conversions)} conversions, ${money(c.costPerConv, 2)}/conv${roasBit(c)}`);
     }
   }
 
@@ -172,8 +188,8 @@ function factsBlock(
 const BOILERPLATE_OPTIMISATION =
   "Regular account optimisations including bid management, adding new keywords from search terms, adding new negative keywords, resolving ad split tests, creating new ads for split-testing purposes, improving underperforming assets, creating new ad groups for top converting search terms.";
 
-const SYSTEM = (brand: string) =>
-  `You are a senior paid-search account manager at ${brand}, writing the weekly performance update that goes to a client. It is a Swydo-style report wrapped in a warm, professional email — the email carries a link to the client's dashboard, where the full visual tiles and tables live.
+const SYSTEM = (brand: string, cadence: "weekly" | "monthly", accountPrompt?: string | null) =>
+  `You are a senior paid-search account manager at ${brand}, writing the ${cadence} performance update that goes to a client. It is a Swydo-style report wrapped in a warm, professional email, the email carries a link to the client's dashboard, where the full visual tiles and tables live.
 
 Voice: warm, professional, specific — an experienced human analyst, not a robot. Plain language a business owner understands.
 
@@ -185,6 +201,7 @@ HARD RULES:
 - CHANNELS: the account spans multiple campaign types; the headline figures are ACCOUNT-WIDE. Only Search campaigns have "keywords" and "search terms" — for Performance Max / Demand Gen / Shopping talk about assets, audiences, product/listing groups. Never call a change tagged "[Performance Max]" or "[Demand Gen]" a Search change, and never call product/listing groups "keywords".
 - Anything labelled "SEARCH CAMPAIGNS ONLY" (search impression share, search terms) covers only Search — never present it as account-wide.
 - If conversion-value tracking is absent, never mention revenue, ROAS or AOV.
+- STANDOUT / MOST EFFICIENT: when conversion value IS tracked, judge the best performer by conversion VALUE and ROAS, never by conversion count or cost per conversion. A campaign with many cheap conversions but low value is NOT the standout. Use the "TOP CAMPAIGNS BY CONVERSION VALUE" list for this. Only when value is not tracked do you rank by conversions and cost per conversion.
 - NEVER fabricate old→new budget or Target-CPA values, month-to-date spend, or targets — we do not have them.
 - Optimisations: describe ONLY the changes in the change log, respecting campaign name AND channel. You may add a brief, conservative rationale, but never claim a specific result or number not in the data.
 - Keep it grounded. Quiet period or thin data → keep sections short; one honest line beats invented content. This is a DRAFT a human reviews before it reaches the client.
@@ -206,13 +223,13 @@ Flowing prose: the headline movement WITH attribution (interaction vs conversion
 *Conversions by action*
 A standalone short paragraph: the count (and value when tracked) per conversion action, and which actions drove the most conversions.
 
-*Last Week's Optimisations*
+*Optimisations This Period*
 Start with this verbatim line: "${BOILERPLATE_OPTIMISATION}" Then first-person specifics ("I have …") drawn only from the change log.
 
 <warm close noting the full visual report is on their dashboard>
 Best regards,
 The ${brand} Team
-
+${accountPrompt ? `\nACCOUNT-SPECIFIC GUIDANCE (from the account manager; follow it, but it never overrides the HARD RULES above):\n${accountPrompt}\n` : ""}
 Write the update now.`;
 
 export async function generateNarrative(
@@ -220,11 +237,13 @@ export async function generateNarrative(
   companyName: string,
   optimisations: string[] = [],
   contactName?: string | null,
+  opts?: { accountPrompt?: string | null; cadence?: "weekly" | "monthly" },
 ): Promise<string | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
 
   const brand = entityConfig.brandName || "PPC Mastery";
+  const cadence = opts?.cadence ?? "weekly";
   const client = new Anthropic({ apiKey });
 
   try {
@@ -232,7 +251,7 @@ export async function generateNarrative(
       model: MODEL,
       max_tokens: 3000,
       thinking: { type: "adaptive" },
-      system: SYSTEM(brand),
+      system: SYSTEM(brand, cadence, opts?.accountPrompt),
       messages: [
         {
           role: "user",

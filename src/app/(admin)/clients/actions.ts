@@ -7,6 +7,17 @@ import { requireAgencyAdmin } from "@/lib/auth/guard";
 import { logActivity } from "@/lib/activity";
 import { CUSTOM_TIER_KEY } from "@/lib/tiers";
 
+// Save the per-account report narrative prompt (account-specific guidance for the
+// LLM weekly/monthly narrative). Admin-only. Empty clears it.
+export async function saveReportPrompt(clientId: string, formData: FormData): Promise<void> {
+  const { email } = await requireAgencyAdmin();
+  const prompt = String(formData.get("report_prompt") ?? "").trim();
+  const supabase = createSupabaseAdminClient();
+  await supabase.from("clients").update({ report_prompt: prompt || null }).eq("id", clientId);
+  await logActivity({ clientId, eventType: "report_prompt_updated", actor: `admin:${email}` });
+  revalidatePath(`/clients/${clientId}`);
+}
+
 // Create a client record + its onboarding state, then jump to the client page
 // (where the shareable onboarding link lives). Admin-only.
 export async function createClient(formData: FormData): Promise<void> {
