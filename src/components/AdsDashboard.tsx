@@ -10,17 +10,8 @@ import type {
   TopAd,
   MonthRow,
   ImpressionShare,
-  ReportRange,
 } from "@/lib/integrations/google-ads/reporting";
-
-// Selectable ranges — the same set as the Slack report sender.
-const RANGES: { key: ReportRange; label: string }[] = [
-  { key: "mon_sun", label: "Week" },
-  { key: "7d", label: "7d" },
-  { key: "14d", label: "14d" },
-  { key: "30d", label: "30d" },
-  { key: "month", label: "Month" },
-];
+import { RangeControls } from "@/components/RangeControls";
 
 function makeFmt(currency: string) {
   return {
@@ -44,7 +35,7 @@ export function AdsDashboard({
 }: {
   payload: DashboardPayload | null;
   basePath: string;
-  range: ReportRange;
+  range: string;
 }) {
   if (!payload) {
     return (
@@ -71,24 +62,17 @@ export function AdsDashboard({
             All campaigns · {payload.range.start} → {payload.range.end} · {payload.currency}
           </p>
         </div>
-        <div className="flex gap-1 rounded-lg bg-white/10 p-1 print:hidden">
-          {RANGES.map((r) => (
-            <a
-              key={r.key}
-              href={`${basePath}?range=${r.key}`}
-              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                r.key === range ? "bg-white text-[#0B1F3A]" : "text-white/70 hover:text-white"
-              }`}
-            >
-              {r.label}
-            </a>
-          ))}
-        </div>
+        <RangeControls
+          basePath={basePath}
+          range={range}
+          customStart={range === "custom" ? payload.range.start : undefined}
+          customEnd={range === "custom" ? payload.range.end : undefined}
+        />
       </div>
 
       <div className="p-6">
-        {/* This week — hero banner */}
-        <WeekBanner weekly={payload.weekly} money={(n) => money(n)} dec={dec} />
+        {/* Selected-period hero banner */}
+        <PeriodBanner payload={payload} range={range} money={(n) => money(n)} dec={dec} />
 
         {/* Hero KPIs */}
         <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -201,15 +185,23 @@ export function AdsDashboard({
   );
 }
 
-function WeekBanner({
-  weekly,
+function PeriodBanner({
+  payload,
+  range,
   money,
   dec,
 }: {
-  weekly: DashboardPayload["weekly"];
+  payload: DashboardPayload;
+  range: string;
   money: (n: number) => string;
   dec: (n: number, dp?: number) => string;
 }) {
+  const k = payload.kpis;
+  const title =
+    range === "mon_sun" ? "This week"
+    : range === "custom" ? "Selected period"
+    : range === "month" ? "Last month"
+    : `Last ${range}`;
   const chip = (label: string, value: string, kp: Kpi) => (
     <div>
       <div className="text-xs text-zinc-500">{label}</div>
@@ -226,20 +218,20 @@ function WeekBanner({
   return (
     <div className="rounded-xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-5">
       <div className="text-xs font-semibold uppercase tracking-wide text-[#0B1F3A]">
-        This week · {weekly.start} → {weekly.end}
+        {title} · {payload.range.start} → {payload.range.end}
       </div>
       <div className="mt-3 flex flex-wrap gap-x-10 gap-y-3">
-        {chip("Spend", money(weekly.spend.value), weekly.spend)}
-        {chip("Conversions", dec(weekly.conversions.value), weekly.conversions)}
+        {chip("Spend", money(k.spend.value), k.spend)}
+        {chip("Conversions", dec(k.conversions.value), k.conversions)}
       </div>
       <div className="mt-3 border-t border-zinc-200/70 pt-3 text-sm text-zinc-600">
-        {weekly.changeLines.length ? (
+        {payload.weekly.changeLines.length ? (
           <>
-            <span className="font-medium text-zinc-500">Changes this week: </span>
-            {weekly.changeLines.join(", ")}.
+            <span className="font-medium text-zinc-500">Recent changes: </span>
+            {payload.weekly.changeLines.join(", ")}.
           </>
         ) : (
-          <span className="text-zinc-400">No account changes this week.</span>
+          <span className="text-zinc-400">No recent account changes.</span>
         )}
       </div>
     </div>

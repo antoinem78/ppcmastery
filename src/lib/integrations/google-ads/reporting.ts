@@ -986,3 +986,18 @@ export async function getDashboardForRange(customerId: string, range: ReportRang
 export async function getDashboardForCustomRange(customerId: string, start: string, end: string): Promise<DashboardPayload> {
   return buildDashboard(customerId, { mode: "custom", start, end });
 }
+
+// Resolve a dashboard payload + the active range key from URL search params.
+// Handles ?range=custom&start=&end= (live) and the named ranges (cached).
+export async function resolveDashboard(
+  clientId: string,
+  customerId: string,
+  q: { range?: string; start?: string; end?: string },
+): Promise<{ payload: DashboardPayload; rangeKey: string }> {
+  if (q.range === "custom" && q.start && q.end) {
+    const [start, end] = q.start <= q.end ? [q.start, q.end] : [q.end, q.start];
+    return { payload: await getDashboardForCustomRange(customerId, start, end), rangeKey: "custom" };
+  }
+  const range = parseReportRange(q.range);
+  return { payload: await getDashboard(clientId, customerId, range), rangeKey: range };
+}

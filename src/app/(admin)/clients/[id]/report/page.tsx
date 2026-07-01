@@ -3,7 +3,7 @@
 // sidebar and range buttons are print-hidden). Range comes from ?range=.
 import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { getDashboard, parseReportRange, type Kpi } from "@/lib/integrations/google-ads/reporting";
+import { resolveDashboard, type Kpi } from "@/lib/integrations/google-ads/reporting";
 import { entityConfig } from "@/lib/config";
 import { AdsDashboard } from "@/components/AdsDashboard";
 import { SavePdfButton } from "@/components/SavePdfButton";
@@ -15,10 +15,10 @@ export default async function ReportPrintPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; start?: string; end?: string }>;
 }) {
   const { id } = await params;
-  const range = parseReportRange((await searchParams).range);
+  const sp = await searchParams;
   const supabase = createSupabaseAdminClient();
 
   const { data: client } = await supabase.from("clients").select("company_name").eq("id", id).single();
@@ -31,7 +31,15 @@ export default async function ReportPrintPage({
 
   const reportingId = (state?.google_ads_reporting_customer_id as string | null) ?? (state?.google_ads_customer_id as string | null);
   const approved = state?.ad_link_status === "approved" && reportingId;
-  const dash = approved ? await getDashboard(id, reportingId as string, range).catch(() => null) : null;
+  let dash = null;
+  let rangeKey = "mon_sun";
+  if (approved) {
+    try {
+      const r = await resolveDashboard(id, reportingId as string, sp);
+      dash = r.payload;
+      rangeKey = r.rangeKey;
+    } catch { /* leave dash null */ }
+  }
 
   const brand = entityConfig.brandName || "PPC Mastery";
   const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
@@ -79,7 +87,7 @@ export default async function ReportPrintPage({
       )}
 
       {dash ? (
-        <AdsDashboard payload={dash} basePath={`/clients/${id}/report`} range={range} />
+        <AdsDashboard payload={dash} basePath={`/clients/${id}/report`} range={rangeKey} />
       ) : (
         <p className="text-sm text-zinc-500">No performance data available for this client (the Google Ads link must be approved).</p>
       )}

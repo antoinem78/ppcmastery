@@ -20,8 +20,7 @@ import {
   saveReportPrompt,
 } from "../actions";
 import {
-  getDashboard,
-  parseReportRange,
+  resolveDashboard,
   type DashboardPayload,
 } from "@/lib/integrations/google-ads/reporting";
 import { AdsDashboard } from "@/components/AdsDashboard";
@@ -51,10 +50,10 @@ export default async function ClientDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; start?: string; end?: string }>;
 }) {
   const { id } = await params;
-  const range = parseReportRange((await searchParams).range);
+  const sp = await searchParams;
   const supabase = createSupabaseAdminClient();
 
   const { data: client } = await supabase
@@ -133,17 +132,21 @@ export default async function ClientDetailPage({
 
   // Performance dashboard once the Google Ads link is active (cached, guarded).
   let dashboard: DashboardPayload | null = null;
+  let rangeKey = "mon_sun";
   const adApproved =
     state?.ad_link_status === "approved" && state?.google_ads_customer_id;
   const reportingId =
     state?.google_ads_reporting_customer_id ?? state?.google_ads_customer_id;
   if (adApproved && reportingId) {
     try {
-      dashboard = await getDashboard(id, reportingId, range);
+      const res = await resolveDashboard(id, reportingId, sp);
+      dashboard = res.payload;
+      rangeKey = res.rangeKey;
     } catch (e) {
       console.error("Admin dashboard fetch failed:", e);
     }
   }
+  const pdfQuery = rangeKey === "custom" ? `range=custom&start=${sp.start}&end=${sp.end}` : `range=${rangeKey}`;
 
   return (
     <div className="p-10">
@@ -395,7 +398,7 @@ export default async function ClientDetailPage({
             <div className="flex flex-wrap items-start gap-3">
               <ReportSender clientId={id} />
               <a
-                href={`/clients/${id}/report?range=${range}`}
+                href={`/clients/${id}/report?${pdfQuery}`}
                 target="_blank"
                 className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
               >
@@ -409,7 +412,7 @@ export default async function ClientDetailPage({
             <code className="min-w-0 flex-1 truncate rounded-md bg-zinc-100 px-3 py-1.5 text-xs text-zinc-700">{shareUrl}</code>
             <CopyButton value={shareUrl} />
           </div>
-          <AdsDashboard payload={dashboard} basePath={`/clients/${id}`} range={range} />
+          <AdsDashboard payload={dashboard} basePath={`/clients/${id}`} range={rangeKey} />
         </div>
       )}
 

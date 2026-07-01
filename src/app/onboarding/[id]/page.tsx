@@ -30,7 +30,7 @@ import {
   accessGrantTargets,
   type AccessTaskKey,
 } from "@/lib/access-tasks";
-import { getDashboard, parseReportRange, type DashboardPayload, type ReportRange } from "@/lib/integrations/google-ads/reporting";
+import { resolveDashboard, type DashboardPayload } from "@/lib/integrations/google-ads/reporting";
 import { AdsDashboard } from "@/components/AdsDashboard";
 import { finalizeFromCheckoutSession } from "@/lib/integrations/stripe";
 import {
@@ -54,12 +54,11 @@ export default async function OnboardingPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ session_id?: string; range?: string }>;
+  searchParams: Promise<{ session_id?: string; range?: string; start?: string; end?: string }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
   const sessionId = sp.session_id;
-  const range = parseReportRange(sp.range);
   const supabase = createSupabaseAdminClient();
 
   const { data: client } = await supabase
@@ -83,11 +82,14 @@ export default async function OnboardingPage({
   // their link IS their performance dashboard.
   if (client.source === "reporting_only") {
     let dashboard: DashboardPayload | null = null;
+    let rangeKey = "mon_sun";
     const reportingId =
       state?.google_ads_reporting_customer_id ?? state?.google_ads_customer_id;
     if (state?.ad_link_status === "approved" && reportingId) {
       try {
-        dashboard = await getDashboard(id, reportingId, range);
+        const r = await resolveDashboard(id, reportingId, sp);
+        dashboard = r.payload;
+        rangeKey = r.rangeKey;
       } catch (e) {
         console.error("Reporting-client dashboard fetch failed:", e);
       }
@@ -104,7 +106,7 @@ export default async function OnboardingPage({
           <AdsDashboard
             payload={dashboard}
             basePath={`/onboarding/${id}`}
-            range={range}
+            range={rangeKey}
           />
         </div>
       </Shell>
@@ -128,13 +130,16 @@ export default async function OnboardingPage({
     // Performance dashboard once the Google Ads link is active (cached, guarded
     // so a reporting hiccup never breaks the home).
     let dashboard: DashboardPayload | null = null;
+    let rangeKey = "mon_sun";
     const adApproved =
       state?.ad_link_status === "approved" && state?.google_ads_customer_id;
     const reportingId =
       state?.google_ads_reporting_customer_id ?? state?.google_ads_customer_id;
     if (adApproved && reportingId) {
       try {
-        dashboard = await getDashboard(id, reportingId, range);
+        const r = await resolveDashboard(id, reportingId, sp);
+        dashboard = r.payload;
+        rangeKey = r.rangeKey;
       } catch (e) {
         console.error("Dashboard fetch failed:", e);
       }
@@ -160,7 +165,7 @@ export default async function OnboardingPage({
           assetsLink={state?.assets_drive_link ?? null}
           msAdsAccount={state?.microsoft_ads_account_id ?? null}
           dashboard={adApproved ? dashboard : undefined}
-          dashboardRange={range}
+          dashboardRange={rangeKey}
           dashboardBasePath={`/onboarding/${id}`}
         />
       </Shell>
@@ -266,7 +271,7 @@ function ClientHome({
   assetsLink: string | null;
   msAdsAccount: string | null;
   dashboard?: DashboardPayload | null;
-  dashboardRange: ReportRange;
+  dashboardRange: string;
   dashboardBasePath: string;
 }) {
   const questionnaireDone = !!questionnaire.monthly_budget;

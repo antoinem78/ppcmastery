@@ -5,7 +5,7 @@
 // numbers.
 import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { getDashboard, parseReportRange } from "@/lib/integrations/google-ads/reporting";
+import { resolveDashboard } from "@/lib/integrations/google-ads/reporting";
 import { entityConfig } from "@/lib/config";
 import { Wordmark } from "@/components/Wordmark";
 import { AdsDashboard } from "@/components/AdsDashboard";
@@ -17,10 +17,10 @@ export default async function SharedDashboardPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; start?: string; end?: string }>;
 }) {
   const { id } = await params;
-  const range = parseReportRange((await searchParams).range);
+  const sp = await searchParams;
   const supabase = createSupabaseAdminClient();
 
   const { data: client } = await supabase.from("clients").select("company_name").eq("id", id).single();
@@ -33,7 +33,15 @@ export default async function SharedDashboardPage({
 
   const reportingId = (state?.google_ads_reporting_customer_id as string | null) ?? (state?.google_ads_customer_id as string | null);
   const approved = state?.ad_link_status === "approved" && reportingId;
-  const dash = approved ? await getDashboard(id, reportingId as string, range).catch(() => null) : null;
+  let dash = null;
+  let rangeKey = "mon_sun";
+  if (approved) {
+    try {
+      const r = await resolveDashboard(id, reportingId as string, sp);
+      dash = r.payload;
+      rangeKey = r.rangeKey;
+    } catch { /* leave dash null */ }
+  }
   const brand = entityConfig.brandName || "PPC Mastery";
 
   return (
@@ -50,7 +58,7 @@ export default async function SharedDashboardPage({
       <main className="mx-auto max-w-5xl px-6 py-8">
         <h1 className="mb-4 text-xl font-semibold text-zinc-900">Google Ads Performance</h1>
         {dash ? (
-          <AdsDashboard payload={dash} basePath={`/share/${id}`} range={range} />
+          <AdsDashboard payload={dash} basePath={`/share/${id}`} range={rangeKey} />
         ) : (
           <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">
             Performance data isn&rsquo;t available yet. Please check back once the account is connected.
