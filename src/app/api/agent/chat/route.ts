@@ -14,9 +14,11 @@ export async function POST(req: Request) {
   }
 
   let messages: ChatMessage[] = [];
+  let focusClientId: string | null = null;
   try {
-    const body = (await req.json()) as { messages?: ChatMessage[] };
+    const body = (await req.json()) as { messages?: ChatMessage[]; focusClientId?: string | null };
     messages = Array.isArray(body.messages) ? body.messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string") : [];
+    focusClientId = typeof body.focusClientId === "string" && body.focusClientId ? body.focusClientId : null;
   } catch {
     return new Response(JSON.stringify({ error: "Invalid request body." }), { status: 400 });
   }

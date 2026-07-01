@@ -181,7 +181,11 @@ async function runTool(name: string, input: Record<string, unknown>, roster: Ros
   }
 }
 
-export async function runAgentChatStream(history: ChatMessage[], emit: (e: AgentEvent) => void): Promise<void> {
+export async function runAgentChatStream(
+  history: ChatMessage[],
+  emit: (e: AgentEvent) => void,
+  focusClientId?: string | null,
+): Promise<void> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     emit({ type: "error", text: "AI is not configured (ANTHROPIC_API_KEY missing)." });
@@ -191,6 +195,10 @@ export async function runAgentChatStream(history: ChatMessage[], emit: (e: Agent
 
   const client = new Anthropic({ apiKey });
   const roster = await listApprovedAccounts();
+  const focus = focusClientId ? roster.find((r) => r.clientId === focusClientId) : undefined;
+  const system = focus
+    ? `${SYSTEM}\n\nFOCUS ACCOUNT: the user is working on ${focus.company} (clientId ${focus.clientId}). Treat questions as about this account unless they clearly name another. This thread may continue an earlier conversation about this account, so build on what was already discussed rather than re-introducing it.`
+    : SYSTEM;
   const messages: Anthropic.MessageParam[] = history.map((m) => ({ role: m.role, content: m.content }));
 
   try {
@@ -201,7 +209,7 @@ export async function runAgentChatStream(history: ChatMessage[], emit: (e: Agent
         model: MODEL,
         max_tokens: 2000,
         thinking: { type: "adaptive" },
-        system: SYSTEM,
+        system,
         tools: TOOLS,
         messages,
       });

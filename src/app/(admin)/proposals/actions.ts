@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { requireAgencyAdmin } from "@/lib/auth/guard";
-import { decideProposal, deleteProposal } from "@/lib/proposals";
+import { decideProposal, deleteProposal, markProposalApplied } from "@/lib/proposals";
 import { dryRunProposal, applyProposal, rollbackProposal, type ExecResult } from "@/lib/proposals-execute";
 
 // Server actions self-guard (reachable via direct POST, not just the UI).
@@ -21,6 +21,13 @@ export async function dismissProposal(id: string) {
 export async function deleteProposalAction(id: string) {
   const { email } = await requireAgencyAdmin();
   await deleteProposal(id, `admin:${email}`);
+  revalidatePath("/proposals");
+}
+
+// Manually mark an approved (advisory) proposal as applied. Admin-only.
+export async function markAppliedAction(id: string) {
+  const { email } = await requireAgencyAdmin();
+  await markProposalApplied(id, `admin:${email}`);
   revalidatePath("/proposals");
 }
 

@@ -8,7 +8,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { writeEnabled } from "@/lib/integrations/google-ads/write";
 import { ProposalExecuteControls } from "@/components/ProposalExecuteControls";
 import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
-import { approveProposal, dismissProposal, deleteProposalAction } from "./actions";
+import { approveProposal, dismissProposal, deleteProposalAction, markAppliedAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +87,15 @@ function ProposalCard({ p, company, pending }: { p: Proposal; company: string; p
       {/* P5-Lite execution controls (genuinely-executable proposals only). */}
       {executable && (p.status === "approved" || p.status === "applied") && (
         <ProposalExecuteControls id={p.id} status={p.status} />
+      )}
+
+      {/* Advisory proposals: mark applied by hand once actioned in Google Ads. */}
+      {!executable && p.status === "approved" && (
+        <form action={markAppliedAction.bind(null, p.id)} className="mt-3">
+          <button type="submit" className="rounded-md border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50">
+            Mark as applied
+          </button>
+        </form>
       )}
 
       <form action={deleteProposalAction.bind(null, p.id)} className="mt-3 border-t border-zinc-100 pt-2 text-right">

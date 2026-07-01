@@ -85,6 +85,29 @@ export async function pendingProposalCount(): Promise<number> {
   return count ?? 0;
 }
 
+// Manually mark an approved proposal as applied (for advisory proposals the team
+// actioned by hand in Google Ads; executable ones flip to 'applied' via the
+// P5-Lite worker on a real write).
+export async function markProposalApplied(id: string, actor: string): Promise<{ ok: true } | { error: string }> {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("optimization_proposals")
+    .update({ status: "applied", applied_by: actor, applied_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("status", "approved")
+    .select("client_id, title")
+    .single();
+  if (error) return { error: error.message };
+  if (!data) return { error: "Only an approved proposal can be marked applied." };
+  await logActivity({
+    clientId: data.client_id as string,
+    eventType: "proposal_marked_applied",
+    actor,
+    payload: { proposal_id: id, title: data.title, manual: true },
+  });
+  return { ok: true };
+}
+
 export async function deleteProposal(id: string, actor: string): Promise<{ ok: true } | { error: string }> {
   const supabase = createSupabaseAdminClient();
   const { data } = await supabase.from("optimization_proposals").select("client_id, title").eq("id", id).single();

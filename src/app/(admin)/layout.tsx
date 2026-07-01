@@ -13,6 +13,7 @@ import { auth0 } from "@/lib/auth/auth0";
 import { isAgencyAdmin } from "@/lib/auth/roles";
 import { pendingProposalCount } from "@/lib/proposals";
 import { Wordmark } from "@/components/Wordmark";
+import { CommandChat } from "@/components/CommandChat";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
@@ -80,6 +81,7 @@ export default async function AdminLayout({
         </div>
       </aside>
       <main className="flex-1 bg-zinc-50">{children}</main>
+      <CommandChat />
     </div>
   );
 }
