@@ -3,18 +3,12 @@
 // sidebar and range buttons are print-hidden). Range comes from ?range=.
 import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { getDashboard, type ReportWindow, type Kpi } from "@/lib/integrations/google-ads/reporting";
+import { getDashboard, parseReportRange, type Kpi } from "@/lib/integrations/google-ads/reporting";
 import { entityConfig } from "@/lib/config";
 import { AdsDashboard } from "@/components/AdsDashboard";
 import { SavePdfButton } from "@/components/SavePdfButton";
 
 export const dynamic = "force-dynamic";
-
-function parseRange(raw: string | undefined): ReportWindow {
-  if (raw === "month" || raw === "0") return 0;
-  const n = Number(raw);
-  return n === 28 || n === 90 ? n : 7;
-}
 
 export default async function ReportPrintPage({
   params,
@@ -24,7 +18,7 @@ export default async function ReportPrintPage({
   searchParams: Promise<{ range?: string }>;
 }) {
   const { id } = await params;
-  const range = parseRange((await searchParams).range);
+  const range = parseReportRange((await searchParams).range);
   const supabase = createSupabaseAdminClient();
 
   const { data: client } = await supabase.from("clients").select("company_name").eq("id", id).single();

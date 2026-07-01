@@ -107,7 +107,7 @@ async function runTool(name: string, input: Record<string, unknown>, roster: Ros
     case "get_account_report": {
       const acct = findAccount(input.clientId);
       if (!acct) return { error: "Unknown clientId. Call list_accounts first." };
-      const d = await getDashboard(acct.clientId, acct.reportingId, 7);
+      const d = await getDashboard(acct.clientId, acct.reportingId, "mon_sun");
       return {
         company: acct.company,
         currency: d.currency,

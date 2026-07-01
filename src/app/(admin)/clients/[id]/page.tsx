@@ -21,21 +21,14 @@ import {
 } from "../actions";
 import {
   getDashboard,
+  parseReportRange,
   type DashboardPayload,
-  type ReportWindow,
 } from "@/lib/integrations/google-ads/reporting";
 import { AdsDashboard } from "@/components/AdsDashboard";
 import { GenerateAuditButton } from "@/components/GenerateAuditButton";
 import { ReportSender } from "@/components/ReportSender";
 
 export const dynamic = "force-dynamic";
-
-function parseRange(raw: string | undefined): ReportWindow {
-  if (raw === "month" || raw === "0") return 0; // last complete calendar month
-  const n = Number(raw);
-  // Default to the 7-day "Week" — this is a weekly report tool; 28d misleads.
-  return n === 28 || n === 90 ? n : 7;
-}
 
 const QUESTION_LABELS: Record<string, string> = {
   monthly_budget: "Monthly budget",
@@ -61,7 +54,7 @@ export default async function ClientDetailPage({
   searchParams: Promise<{ range?: string }>;
 }) {
   const { id } = await params;
-  const range = parseRange((await searchParams).range);
+  const range = parseReportRange((await searchParams).range);
   const supabase = createSupabaseAdminClient();
 
   const { data: client } = await supabase
@@ -87,6 +80,7 @@ export default async function ClientDetailPage({
   const host = h.get("host") ?? "localhost:3000";
   const proto = host.startsWith("localhost") ? "http" : "https";
   const onboardingUrl = `${proto}://${host}/onboarding/${id}`;
+  const shareUrl = `${proto}://${host}/share/${id}`; // public dashboard-only link
 
   const price = client.custom_monthly_price ?? null;
   const questionnaire =
@@ -401,7 +395,7 @@ export default async function ClientDetailPage({
             <div className="flex flex-wrap items-start gap-3">
               <ReportSender clientId={id} />
               <a
-                href={`/clients/${id}/report?range=${range === 0 ? "month" : range}`}
+                href={`/clients/${id}/report?range=${range}`}
                 target="_blank"
                 className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
               >
@@ -409,6 +403,11 @@ export default async function ClientDetailPage({
               </a>
               <GenerateAuditButton clientId={id} company={client.company_name} />
             </div>
+          </div>
+          <div className="mb-3 flex items-center gap-2">
+            <span className="shrink-0 text-xs text-zinc-500">Client dashboard link:</span>
+            <code className="min-w-0 flex-1 truncate rounded-md bg-zinc-100 px-3 py-1.5 text-xs text-zinc-700">{shareUrl}</code>
+            <CopyButton value={shareUrl} />
           </div>
           <AdsDashboard payload={dashboard} basePath={`/clients/${id}`} range={range} />
         </div>

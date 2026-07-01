@@ -13,7 +13,6 @@ import {
   getDashboard,
   getWeeklyOptimisations,
   formatWeeklyText,
-  MONTH_WINDOW,
 } from "@/lib/integrations/google-ads/reporting";
 import { generateNarrative } from "@/lib/integrations/anthropic/narrative";
 
@@ -50,7 +49,7 @@ export async function GET(request: Request) {
   // ?window=month → last complete calendar month vs the month before (monthly
   // narrative). Default is the Mon-Sun weekly report.
   const isMonthly = url.searchParams.get("window") === "month";
-  const win = isMonthly ? MONTH_WINDOW : 7;
+  const reportRange = isMonthly ? "month" : "mon_sun";
   const companyOf = (r: { clients?: unknown }) =>
     (r.clients as unknown as { company_name?: string } | null)?.company_name ?? "";
 
@@ -101,7 +100,7 @@ export async function GET(request: Request) {
       // One dashboard pull (cached) gives us the verified numbers + the material
       // for the narrative. The period is the Mon-Sun week, or the last calendar
       // month when window=month.
-      const dash = await getDashboard(clientId, reportingId, win);
+      const dash = await getDashboard(clientId, reportingId, reportRange);
       const period = isMonthly ? dash.range : dash.weekly;
       const optimisations = await getWeeklyOptimisations(reportingId, period.start, period.end);
 

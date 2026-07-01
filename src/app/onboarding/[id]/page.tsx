@@ -30,15 +30,8 @@ import {
   accessGrantTargets,
   type AccessTaskKey,
 } from "@/lib/access-tasks";
-import { getDashboard, type DashboardPayload, type ReportWindow } from "@/lib/integrations/google-ads/reporting";
+import { getDashboard, parseReportRange, type DashboardPayload, type ReportRange } from "@/lib/integrations/google-ads/reporting";
 import { AdsDashboard } from "@/components/AdsDashboard";
-
-function parseRange(raw: string | undefined): ReportWindow {
-  if (raw === "month" || raw === "0") return 0; // last complete calendar month
-  const n = Number(raw);
-  // Default to the 7-day "Week" — this is a weekly report tool; 28d misleads.
-  return n === 28 || n === 90 ? n : 7;
-}
 import { finalizeFromCheckoutSession } from "@/lib/integrations/stripe";
 import {
   getDocumentStatus,
@@ -66,7 +59,7 @@ export default async function OnboardingPage({
   const { id } = await params;
   const sp = await searchParams;
   const sessionId = sp.session_id;
-  const range = parseRange(sp.range);
+  const range = parseReportRange(sp.range);
   const supabase = createSupabaseAdminClient();
 
   const { data: client } = await supabase
@@ -273,7 +266,7 @@ function ClientHome({
   assetsLink: string | null;
   msAdsAccount: string | null;
   dashboard?: DashboardPayload | null;
-  dashboardRange: number;
+  dashboardRange: ReportRange;
   dashboardBasePath: string;
 }) {
   const questionnaireDone = !!questionnaire.monthly_budget;

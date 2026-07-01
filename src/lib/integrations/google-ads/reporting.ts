@@ -44,6 +44,12 @@ const specFromWindow = (windowDays: number): WindowSpec =>
 // Range -> narrative cadence wording.
 export const cadenceFor = (range: ReportRange): "weekly" | "monthly" =>
   range === "month" || range === "30d" ? "monthly" : "weekly";
+// Stable integer cache key per range (ads_report_cache.window_days is an int;
+// distinct values, so rolling-7 doesn't collide with the Mon-Sun week).
+const RANGE_CACHE_KEY: Record<ReportRange, number> = { mon_sun: 7, "7d": 1, "14d": 14, "30d": 30, month: 0 };
+// Query-param <-> range for the dashboard selector + pages.
+export const parseReportRange = (raw: string | undefined): ReportRange =>
+  raw === "7d" || raw === "14d" || raw === "30d" || raw === "month" ? raw : "mon_sun";
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
 export interface Kpi {
@@ -939,15 +945,16 @@ export async function getAccountSummary(customerId: string): Promise<AccountSumm
 export async function getDashboard(
   clientId: string,
   customerId: string,
-  windowDays: ReportWindow,
+  range: ReportRange,
 ): Promise<DashboardPayload> {
   const supabase = createSupabaseAdminClient();
+  const cacheKey = RANGE_CACHE_KEY[range];
   try {
     const { data } = await supabase
       .from("ads_report_cache")
       .select("payload, fetched_at")
       .eq("client_id", clientId)
-      .eq("window_days", windowDays)
+      .eq("window_days", cacheKey)
       .single();
     if (data && Date.now() - new Date(data.fetched_at).getTime() < CACHE_TTL_MS) {
       return data.payload as DashboardPayload;
@@ -956,12 +963,12 @@ export async function getDashboard(
     /* cache miss / table missing — fall through to live */
   }
 
-  const payload = await buildDashboard(customerId, specFromWindow(windowDays));
+  const payload = await buildDashboard(customerId, specFor(range));
 
   try {
     await supabase
       .from("ads_report_cache")
-      .upsert({ client_id: clientId, window_days: windowDays, payload, fetched_at: new Date().toISOString() });
+      .upsert({ client_id: clientId, window_days: cacheKey, payload, fetched_at: new Date().toISOString() });
   } catch {
     /* cache write best-effort */
   }

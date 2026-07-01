@@ -10,14 +10,16 @@ import type {
   TopAd,
   MonthRow,
   ImpressionShare,
+  ReportRange,
 } from "@/lib/integrations/google-ads/reporting";
 
-// Selectable ranges. 0 = last complete calendar month vs the month before.
-const RANGES: { w: number; label: string; q: string }[] = [
-  { w: 7, label: "Week", q: "7" },
-  { w: 28, label: "28d", q: "28" },
-  { w: 90, label: "90d", q: "90" },
-  { w: 0, label: "Month", q: "month" },
+// Selectable ranges — the same set as the Slack report sender.
+const RANGES: { key: ReportRange; label: string }[] = [
+  { key: "mon_sun", label: "Week" },
+  { key: "7d", label: "7d" },
+  { key: "14d", label: "14d" },
+  { key: "30d", label: "30d" },
+  { key: "month", label: "Month" },
 ];
 
 function makeFmt(currency: string) {
@@ -42,7 +44,7 @@ export function AdsDashboard({
 }: {
   payload: DashboardPayload | null;
   basePath: string;
-  range: number;
+  range: ReportRange;
 }) {
   if (!payload) {
     return (
@@ -72,10 +74,10 @@ export function AdsDashboard({
         <div className="flex gap-1 rounded-lg bg-white/10 p-1 print:hidden">
           {RANGES.map((r) => (
             <a
-              key={r.w}
-              href={`${basePath}?range=${r.q}`}
+              key={r.key}
+              href={`${basePath}?range=${r.key}`}
               className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                r.w === range ? "bg-white text-[#0B1F3A]" : "text-white/70 hover:text-white"
+                r.key === range ? "bg-white text-[#0B1F3A]" : "text-white/70 hover:text-white"
               }`}
             >
               {r.label}
