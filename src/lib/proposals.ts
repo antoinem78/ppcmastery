@@ -85,6 +85,22 @@ export async function pendingProposalCount(): Promise<number> {
   return count ?? 0;
 }
 
+export async function deleteProposal(id: string, actor: string): Promise<{ ok: true } | { error: string }> {
+  const supabase = createSupabaseAdminClient();
+  const { data } = await supabase.from("optimization_proposals").select("client_id, title").eq("id", id).single();
+  const { error } = await supabase.from("optimization_proposals").delete().eq("id", id);
+  if (error) return { error: error.message };
+  if (data) {
+    await logActivity({
+      clientId: data.client_id as string,
+      eventType: "proposal_deleted",
+      actor,
+      payload: { proposal_id: id, title: data.title },
+    });
+  }
+  return { ok: true };
+}
+
 export async function decideProposal(
   id: string,
   decision: "approved" | "dismissed",

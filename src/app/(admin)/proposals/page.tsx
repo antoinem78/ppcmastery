@@ -7,7 +7,8 @@ import { listProposals, type Proposal, type ProposalAction } from "@/lib/proposa
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { writeEnabled } from "@/lib/integrations/google-ads/write";
 import { ProposalExecuteControls } from "@/components/ProposalExecuteControls";
-import { approveProposal, dismissProposal } from "./actions";
+import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
+import { approveProposal, dismissProposal, deleteProposalAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +88,12 @@ function ProposalCard({ p, company, pending }: { p: Proposal; company: string; p
       {executable && (p.status === "approved" || p.status === "applied") && (
         <ProposalExecuteControls id={p.id} status={p.status} />
       )}
+
+      <form action={deleteProposalAction.bind(null, p.id)} className="mt-3 border-t border-zinc-100 pt-2 text-right">
+        <ConfirmSubmitButton message="Permanently delete this proposal? This cannot be undone." className="text-xs text-zinc-400 transition-colors hover:text-red-600">
+          Delete
+        </ConfirmSubmitButton>
+      </form>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity";
 import {
   getDashboardForRange,
+  getDashboardForCustomRange,
   getWeeklyOptimisations,
   formatWeeklyText,
   REPORT_RANGES,
@@ -16,9 +17,13 @@ import { generateNarrative } from "@/lib/integrations/anthropic/narrative";
 
 export async function sendClientReportToSlack(
   clientId: string,
-  range: ReportRange,
+  range: ReportRange | "custom",
   actor = "admin",
+  opts?: { start?: string; end?: string },
 ): Promise<{ ok: true; message: string } | { error: string }> {
+  const isCustom = range === "custom";
+  if (isCustom && (!opts?.start || !opts?.end)) return { error: "Custom range needs a start and end date." };
+  if (isCustom && opts!.start! > opts!.end!) return { error: "Start date must be on or before the end date." };
   const supabase = createSupabaseAdminClient();
   const { data: st } = await supabase
     .from("onboarding_state")
@@ -37,16 +42,21 @@ export async function sendClientReportToSlack(
   const reportingId = (st.google_ads_reporting_customer_id as string | null) ?? (st.google_ads_customer_id as string);
   const meta = st.clients as unknown as { company_name?: string; contact_name?: string | null; report_prompt?: string | null } | null;
   const company = meta?.company_name ?? "";
-  const rangeLabel = REPORT_RANGES.find((r) => r.key === range)?.label ?? range;
+  const rangeLabel = isCustom ? `${opts!.start} to ${opts!.end}` : REPORT_RANGES.find((r) => r.key === range)?.label ?? range;
 
   try {
-    const dash = await getDashboardForRange(reportingId, range);
+    const dash = isCustom
+      ? await getDashboardForCustomRange(reportingId, opts!.start!, opts!.end!)
+      : await getDashboardForRange(reportingId, range as ReportRange);
+    // Custom cadence: treat a span of ~3 weeks+ as monthly framing.
+    const spanDays = Math.round((new Date(dash.range.end).getTime() - new Date(dash.range.start).getTime()) / 86_400_000) + 1;
+    const cadence = isCustom ? (spanDays >= 20 ? "monthly" : "weekly") : cadenceFor(range as ReportRange);
     const optimisations = await getWeeklyOptimisations(reportingId, dash.range.start, dash.range.end);
     let body: string | null = null;
     try {
       body = await generateNarrative(dash, company, optimisations, meta?.contact_name ?? null, {
         accountPrompt: meta?.report_prompt ?? null,
-        cadence: cadenceFor(range),
+        cadence,
       });
     } catch (e) {
       console.error("Report narrative failed (using template):", e);

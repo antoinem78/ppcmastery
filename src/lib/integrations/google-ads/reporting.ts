@@ -30,7 +30,11 @@ export const REPORT_RANGES: { key: ReportRange; label: string }[] = [
 ];
 
 // Internal window descriptor — the single source of truth for date math.
-type WindowSpec = { mode: "mon_sun" } | { mode: "rolling"; days: number } | { mode: "month" };
+type WindowSpec =
+  | { mode: "mon_sun" }
+  | { mode: "rolling"; days: number }
+  | { mode: "month" }
+  | { mode: "custom"; start: string; end: string };
 const specFor = (range: ReportRange): WindowSpec =>
   range === "mon_sun" ? { mode: "mon_sun" }
   : range === "month" ? { mode: "month" }
@@ -202,6 +206,15 @@ function windowsSpec(tz: string, spec: WindowSpec) {
     const prevStart = fmt(new Date(Date.UTC(y, m - 2, 1))); // first of the month before
     const prevEnd = fmt(new Date(Date.UTC(y, m - 1, 0))); // last day of the month before
     return { start, end, prevStart, prevEnd };
+  }
+  if (spec.mode === "custom") {
+    // Arbitrary start/end; compare against the equal-length preceding period.
+    const s = new Date(`${spec.start}T00:00:00Z`);
+    const e = new Date(`${spec.end}T00:00:00Z`);
+    const len = Math.max(1, Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1);
+    const prevEnd = addDays(s, -1);
+    const prevStart = addDays(prevEnd, -(len - 1));
+    return { start: fmt(s), end: fmt(e), prevStart: fmt(prevStart), prevEnd: fmt(prevEnd) };
   }
   if (spec.mode === "mon_sun") {
     const dow = today.getUTCDay(); // 0=Sun … 6=Sat
@@ -567,8 +580,8 @@ async function buildDashboard(customerId: string, spec: WindowSpec): Promise<Das
   const currency = cust.currencyCode ?? "USD";
   const timeZone = cust.timeZone ?? "Etc/UTC";
   const w = windowsSpec(timeZone, spec);
-  // A representative numeric window for the payload (0 month, 7 mon-sun, else N).
-  const windowNum = spec.mode === "month" ? 0 : spec.mode === "mon_sun" ? 7 : spec.days;
+  // A representative numeric window for the payload (rolling N, 7 mon-sun, else 0).
+  const windowNum = spec.mode === "rolling" ? spec.days : spec.mode === "mon_sun" ? 7 : 0;
   // Actual number of days in the window (drives per-day averages).
   const spanDays = Math.max(1, Math.round((new Date(w.end).getTime() - new Date(w.start).getTime()) / 86_400_000) + 1);
 
@@ -959,4 +972,10 @@ export async function getDashboard(
 // which supports ranges (rolling 7/14/30) the cached dashboard window does not.
 export async function getDashboardForRange(customerId: string, range: ReportRange): Promise<DashboardPayload> {
   return buildDashboard(customerId, specFor(range));
+}
+
+// Live dashboard for an arbitrary date range (e.g. a specific past month).
+// Metrics work for any historical range; only the change log is 30-day capped.
+export async function getDashboardForCustomRange(customerId: string, start: string, end: string): Promise<DashboardPayload> {
+  return buildDashboard(customerId, { mode: "custom", start, end });
 }

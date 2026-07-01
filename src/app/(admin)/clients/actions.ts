@@ -16,8 +16,13 @@ const REPORT_RANGE_KEYS: ReportRange[] = ["mon_sun", "7d", "14d", "30d", "month"
 export async function sendReportToSlackAction(
   clientId: string,
   range: string,
+  start?: string,
+  end?: string,
 ): Promise<{ ok: true; message: string } | { error: string }> {
   const { email } = await requireAgencyAdmin();
+  if (range === "custom") {
+    return sendClientReportToSlack(clientId, "custom", `admin:${email}`, { start, end });
+  }
   const valid = (REPORT_RANGE_KEYS as string[]).includes(range) ? (range as ReportRange) : "mon_sun";
   return sendClientReportToSlack(clientId, valid, `admin:${email}`);
 }

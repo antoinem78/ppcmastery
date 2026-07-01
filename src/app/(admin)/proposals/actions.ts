@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { requireAgencyAdmin } from "@/lib/auth/guard";
-import { decideProposal } from "@/lib/proposals";
+import { decideProposal, deleteProposal } from "@/lib/proposals";
 import { dryRunProposal, applyProposal, rollbackProposal, type ExecResult } from "@/lib/proposals-execute";
 
 // Server actions self-guard (reachable via direct POST, not just the UI).
@@ -14,6 +14,13 @@ export async function approveProposal(id: string) {
 export async function dismissProposal(id: string) {
   const { email } = await requireAgencyAdmin();
   await decideProposal(id, "dismissed", `admin:${email}`);
+  revalidatePath("/proposals");
+}
+
+// Permanently delete a proposal (clears out old queries). Admin-only.
+export async function deleteProposalAction(id: string) {
+  const { email } = await requireAgencyAdmin();
+  await deleteProposal(id, `admin:${email}`);
   revalidatePath("/proposals");
 }
 
