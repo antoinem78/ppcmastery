@@ -26,6 +26,7 @@ import {
 } from "@/lib/integrations/google-ads/reporting";
 import { AdsDashboard } from "@/components/AdsDashboard";
 import { GenerateAuditButton } from "@/components/GenerateAuditButton";
+import { ReportSender } from "@/components/ReportSender";
 
 export const dynamic = "force-dynamic";
 
@@ -395,9 +396,12 @@ export default async function ClientDetailPage({
       {/* Performance dashboard */}
       {adApproved && (
         <div className="mt-6">
-          <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
             <h2 className="text-sm font-semibold text-zinc-900">Performance</h2>
-            <GenerateAuditButton clientId={id} company={client.company_name} />
+            <div className="flex flex-wrap items-start gap-3">
+              <ReportSender clientId={id} />
+              <GenerateAuditButton clientId={id} company={client.company_name} />
+            </div>
           </div>
           <AdsDashboard payload={dashboard} basePath={`/clients/${id}`} range={range} />
         </div>

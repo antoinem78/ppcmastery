@@ -6,6 +6,21 @@ import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { requireAgencyAdmin } from "@/lib/auth/guard";
 import { logActivity } from "@/lib/activity";
 import { CUSTOM_TIER_KEY } from "@/lib/tiers";
+import { sendClientReportToSlack } from "@/lib/reports";
+import type { ReportRange } from "@/lib/integrations/google-ads/reporting";
+
+const REPORT_RANGE_KEYS: ReportRange[] = ["mon_sun", "7d", "14d", "30d", "month"];
+
+// Build a report for the chosen range and post the draft to the Slack review
+// channel. Admin-only; returns the result for the client component to display.
+export async function sendReportToSlackAction(
+  clientId: string,
+  range: string,
+): Promise<{ ok: true; message: string } | { error: string }> {
+  const { email } = await requireAgencyAdmin();
+  const valid = (REPORT_RANGE_KEYS as string[]).includes(range) ? (range as ReportRange) : "mon_sun";
+  return sendClientReportToSlack(clientId, valid, `admin:${email}`);
+}
 
 // Save the per-account report narrative prompt (account-specific guidance for the
 // LLM weekly/monthly narrative). Admin-only. Empty clears it.

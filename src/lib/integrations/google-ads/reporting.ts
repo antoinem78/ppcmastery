@@ -17,6 +17,29 @@ import { gaqlSearch } from "./index";
 export const REPORT_WINDOWS = [7, 28, 90] as const;
 export const MONTH_WINDOW = 0; // sentinel: last complete calendar month vs the month before
 export type ReportWindow = (typeof REPORT_WINDOWS)[number] | typeof MONTH_WINDOW;
+
+// Named report ranges for the on-demand "send to Slack" push. Distinguishes the
+// Mon-Sun week from a rolling 7 days (the numeric window cannot).
+export type ReportRange = "mon_sun" | "7d" | "14d" | "30d" | "month";
+export const REPORT_RANGES: { key: ReportRange; label: string }[] = [
+  { key: "mon_sun", label: "Last week (Mon-Sun)" },
+  { key: "7d", label: "Last 7 days" },
+  { key: "14d", label: "Last 14 days" },
+  { key: "30d", label: "Last 30 days" },
+  { key: "month", label: "Last month" },
+];
+
+// Internal window descriptor — the single source of truth for date math.
+type WindowSpec = { mode: "mon_sun" } | { mode: "rolling"; days: number } | { mode: "month" };
+const specFor = (range: ReportRange): WindowSpec =>
+  range === "mon_sun" ? { mode: "mon_sun" }
+  : range === "month" ? { mode: "month" }
+  : { mode: "rolling", days: range === "7d" ? 7 : range === "14d" ? 14 : 30 };
+const specFromWindow = (windowDays: number): WindowSpec =>
+  windowDays === MONTH_WINDOW ? { mode: "month" } : windowDays === 7 ? { mode: "mon_sun" } : { mode: "rolling", days: windowDays };
+// Range -> narrative cadence wording.
+export const cadenceFor = (range: ReportRange): "weekly" | "monthly" =>
+  range === "month" || range === "30d" ? "monthly" : "weekly";
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
 export interface Kpi {
@@ -168,9 +191,9 @@ const addDays = (d: Date, n: number) => {
 
 // The 7-day window is special-cased to the most recent COMPLETE Mon-Sun week
 // (the weekly report period); 28/90 stay rolling "last N days excluding today".
-function windows(tz: string, windowDays: number) {
+function windowsSpec(tz: string, spec: WindowSpec) {
   const today = new Date(`${ymdInTz(new Date(), tz)}T00:00:00Z`);
-  if (windowDays === MONTH_WINDOW) {
+  if (spec.mode === "month") {
     // Last COMPLETE calendar month vs the month before it.
     const y = today.getUTCFullYear();
     const m = today.getUTCMonth();
@@ -180,7 +203,7 @@ function windows(tz: string, windowDays: number) {
     const prevEnd = fmt(new Date(Date.UTC(y, m - 1, 0))); // last day of the month before
     return { start, end, prevStart, prevEnd };
   }
-  if (windowDays === 7) {
+  if (spec.mode === "mon_sun") {
     const dow = today.getUTCDay(); // 0=Sun … 6=Sat
     const backToSunday = dow === 0 ? 7 : dow; // days back to last completed Sunday
     const end = addDays(today, -backToSunday); // Sunday
@@ -189,12 +212,17 @@ function windows(tz: string, windowDays: number) {
     const prevStart = addDays(prevEnd, -6); // previous Monday
     return { start: fmt(start), end: fmt(end), prevStart: fmt(prevStart), prevEnd: fmt(prevEnd) };
   }
-  const end = addDays(today, -1); // exclude today
-  const start = addDays(end, -(windowDays - 1));
+  // rolling: last N days excluding today, vs the N days before that.
+  const n = spec.days;
+  const end = addDays(today, -1);
+  const start = addDays(end, -(n - 1));
   const prevEnd = addDays(start, -1);
-  const prevStart = addDays(prevEnd, -(windowDays - 1));
+  const prevStart = addDays(prevEnd, -(n - 1));
   return { start: fmt(start), end: fmt(end), prevStart: fmt(prevStart), prevEnd: fmt(prevEnd) };
 }
+
+// Back-compat numeric wrapper (7 = Mon-Sun, 0 = month, else rolling N).
+const windows = (tz: string, windowDays: number) => windowsSpec(tz, specFromWindow(windowDays));
 
 function kpi(value: number, prev: number): Kpi {
   return { value, prev, deltaPct: prev > 0 ? ((value - prev) / prev) * 100 : null };
@@ -520,7 +548,7 @@ async function buildWeekly(customerId: string, tz: string): Promise<WeeklySummar
   };
 }
 
-async function buildDashboard(customerId: string, windowDays: number): Promise<DashboardPayload> {
+async function buildDashboard(customerId: string, spec: WindowSpec): Promise<DashboardPayload> {
   // Account meta first (timezone drives the date math, currency drives display).
   const metaRows = await gaqlSearch(
     customerId,
@@ -529,8 +557,10 @@ async function buildDashboard(customerId: string, windowDays: number): Promise<D
   const cust = (metaRows[0]?.customer ?? {}) as { currencyCode?: string; timeZone?: string };
   const currency = cust.currencyCode ?? "USD";
   const timeZone = cust.timeZone ?? "Etc/UTC";
-  const w = windows(timeZone, windowDays);
-  // Actual number of days in the window (windowDays is 0 for the month view).
+  const w = windowsSpec(timeZone, spec);
+  // A representative numeric window for the payload (0 month, 7 mon-sun, else N).
+  const windowNum = spec.mode === "month" ? 0 : spec.mode === "mon_sun" ? 7 : spec.days;
+  // Actual number of days in the window (drives per-day averages).
   const spanDays = Math.max(1, Math.round((new Date(w.end).getTime() - new Date(w.start).getTime()) / 86_400_000) + 1);
 
   // Month-performance range: first of the month 5 months ago → yesterday.
@@ -759,7 +789,7 @@ async function buildDashboard(customerId: string, windowDays: number): Promise<D
   return {
     currency,
     timeZone,
-    window: windowDays,
+    window: windowNum,
     range: { start: w.start, end: w.end },
     prevRange: { start: w.prevStart, end: w.prevEnd },
     hasConversionValue: cur.convValue > 0 || cur.convValueByTime > 0,
@@ -904,7 +934,7 @@ export async function getDashboard(
     /* cache miss / table missing — fall through to live */
   }
 
-  const payload = await buildDashboard(customerId, windowDays);
+  const payload = await buildDashboard(customerId, specFromWindow(windowDays));
 
   try {
     await supabase
@@ -914,4 +944,10 @@ export async function getDashboard(
     /* cache write best-effort */
   }
   return payload;
+}
+
+// Live (uncached) dashboard for a named range — used by the on-demand Slack push,
+// which supports ranges (rolling 7/14/30) the cached dashboard window does not.
+export async function getDashboardForRange(customerId: string, range: ReportRange): Promise<DashboardPayload> {
+  return buildDashboard(customerId, specFor(range));
 }
