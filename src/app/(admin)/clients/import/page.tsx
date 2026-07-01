@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { listManagedAccounts, GoogleAdsError } from "@/lib/integrations/google-ads";
+import { SelectAllCheckboxes } from "@/components/SelectAllCheckboxes";
 import { addReportingClientsBulk } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -54,14 +55,12 @@ export default async function ImportAccountsPage() {
 
       {leaves.length > 0 && (
         <form action={addReportingClientsBulk} className="mt-6">
-          <div className="mb-3 flex items-center justify-between text-xs text-zinc-500">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
             <span>
               {available.length} available · {alreadyIn.length} already imported ·{" "}
               {leaves.length} total
             </span>
-            {available.length > 0 && (
-              <span className="text-zinc-400">Tip: ⌘/Ctrl-click to select text</span>
-            )}
+            {available.length > 0 && <SelectAllCheckboxes />}
           </div>
 
           <div className="max-h-[28rem] divide-y divide-zinc-100 overflow-y-auto rounded-xl border border-zinc-200 bg-white">
