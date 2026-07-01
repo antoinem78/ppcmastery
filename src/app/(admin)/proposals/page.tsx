@@ -11,6 +11,16 @@ import { approveProposal, dismissProposal } from "./actions";
 
 export const dynamic = "force-dynamic";
 
+// Mirror the server's parseAction: an action is only executable when its
+// required fields are present (a missing campaign is advisory, not executable).
+function isExecutableAction(a: ProposalAction | undefined): boolean {
+  if (!a) return false;
+  if (a.kind === "add_negative_keyword") return !!a.campaign && !!a.text;
+  if (a.kind === "pause_campaign") return !!a.campaign;
+  if (a.kind === "set_campaign_budget") return !!a.campaign && typeof a.dailyBudget === "number" && a.dailyBudget > 0;
+  return false;
+}
+
 function actionLabel(a: ProposalAction): string {
   switch (a.kind) {
     case "add_negative_keyword": return `Add negative "${a.text}" (${a.matchType ?? "BROAD"}) to ${a.campaign}`;
@@ -29,6 +39,7 @@ async function companyNames(ids: string[]): Promise<Record<string, string>> {
 
 function ProposalCard({ p, company, pending }: { p: Proposal; company: string; pending: boolean }) {
   const action = p.details?.action;
+  const executable = isExecutableAction(action);
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -36,7 +47,7 @@ function ProposalCard({ p, company, pending }: { p: Proposal; company: string; p
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-zinc-900">{p.title}</h3>
             <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">{p.type}</span>
-            {action ? (
+            {executable ? (
               <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">Executable</span>
             ) : (
               <span className="rounded-full bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-zinc-500">Advisory</span>
@@ -50,7 +61,12 @@ function ProposalCard({ p, company, pending }: { p: Proposal; company: string; p
       </div>
 
       <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{p.rationale}</p>
-      {action && <div className="mt-3 rounded-lg bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-600">{actionLabel(action)}</div>}
+      {action && (
+        <div className="mt-3 rounded-lg bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-600">
+          {actionLabel(action)}
+          {!executable && <span className="ml-2 not-italic text-amber-600">(advisory: no specific campaign, cannot be applied automatically)</span>}
+        </div>
+      )}
 
       {pending ? (
         <div className="mt-4 flex gap-2">
@@ -67,8 +83,8 @@ function ProposalCard({ p, company, pending }: { p: Proposal; company: string; p
         </div>
       )}
 
-      {/* P5-Lite execution controls (executable proposals only). */}
-      {action && (p.status === "approved" || p.status === "applied") && (
+      {/* P5-Lite execution controls (genuinely-executable proposals only). */}
+      {executable && (p.status === "approved" || p.status === "applied") && (
         <ProposalExecuteControls id={p.id} status={p.status} />
       )}
     </div>

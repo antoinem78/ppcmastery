@@ -6,6 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { entityConfig } from "@/lib/config";
 import { listApprovedAccounts, getCommandCenter, type Roster } from "@/lib/command-center";
 import { getDashboard, getWeeklyOptimisations } from "@/lib/integrations/google-ads/reporting";
+import { gaqlSearch } from "@/lib/integrations/google-ads";
 import { createProposal } from "@/lib/proposals";
 
 const MODEL = "claude-opus-4-8";
@@ -33,8 +34,13 @@ const TOOLS: Anthropic.Tool[] = [
   { name: "get_all_account_summaries", description: "Cross-account roll-up: per-currency totals, open alerts, and each account's week-over-week summary. Use this to find accounts needing attention.", input_schema: { type: "object", properties: {}, additionalProperties: false } },
   {
     name: "get_recent_changes",
-    description: "The logged optimisation/change history for one account over the last N days (default 28).",
+    description: "The logged optimisation/change history for one account over the last N days (max 30; Google only exposes the last 30 days of changes).",
     input_schema: { type: "object", properties: { clientId: { type: "string" }, days: { type: "integer" } }, required: ["clientId"], additionalProperties: false },
+  },
+  {
+    name: "list_campaigns",
+    description: "List an account's campaigns (ALL statuses, including PAUSED) with id, name, status and channel. Call this before proposing any campaign-level change so you can name the exact campaign.",
+    input_schema: { type: "object", properties: { clientId: { type: "string" } }, required: ["clientId"], additionalProperties: false },
   },
   {
     name: "propose_optimization",
@@ -71,6 +77,9 @@ RULES:
 - Use ONLY figures returned by the tools. Never invent or recompute a number, account, or campaign name. If you have not pulled the data, pull it before answering.
 - Channel attribution matters: only Search campaigns have keywords and search terms; Performance Max / Demand Gen / Shopping use assets, audiences and listing groups. Never mislabel.
 - You ANALYSE and PROPOSE. You never execute changes. To recommend a concrete change, file it with propose_optimization (include an 'action' for an executable one), then tell the user it is queued for their approval.
+- EXECUTABLE ACTIONS need a real campaign: for pause_campaign, set_campaign_budget, or a campaign-level add_negative_keyword, FIRST call list_campaigns and put the EXACT campaign name (campaigns may be PAUSED, that is fine) in action.campaign. Never guess or leave it blank.
+- If you intend an ACCOUNT-LEVEL or shared negative (not tied to one campaign), do NOT attach an action; file it as an advisory proposal and say it needs a shared negative list. Only campaign-level single operations are executable today.
+- Change history only covers the last 30 days (Google limit); do not ask for more.
 - British English. Never use em dashes or en dashes. Be concise and specific; lead with the answer.`;
 
 function statusFor(name: string, input: Record<string, unknown>): string {
@@ -128,10 +137,24 @@ async function runTool(name: string, input: Record<string, unknown>, roster: Ros
       };
     }
 
+    case "list_campaigns": {
+      const acct = findAccount(input.clientId);
+      if (!acct) return { error: "Unknown clientId. Call list_accounts first." };
+      const rows = await gaqlSearch(
+        acct.reportingId,
+        `SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type
+         FROM campaign WHERE campaign.status != 'REMOVED' ORDER BY campaign.status`,
+      );
+      return rows.map((r) => {
+        const c = (r.campaign ?? {}) as { id?: string | number; name?: string; status?: string; advertisingChannelType?: string };
+        return { id: String(c.id ?? ""), name: c.name ?? "", status: c.status ?? "", channel: c.advertisingChannelType ?? "" };
+      });
+    }
+
     case "get_recent_changes": {
       const acct = findAccount(input.clientId);
       if (!acct) return { error: "Unknown clientId. Call list_accounts first." };
-      const days = typeof input.days === "number" && input.days > 0 ? Math.min(input.days, 90) : 28;
+      const days = typeof input.days === "number" && input.days > 0 ? Math.min(input.days, 30) : 28;
       const end = new Date(); end.setUTCDate(end.getUTCDate() - 1);
       const start = new Date(end); start.setUTCDate(start.getUTCDate() - days + 1);
       const changes = await getWeeklyOptimisations(acct.reportingId, ymd(start), ymd(end));

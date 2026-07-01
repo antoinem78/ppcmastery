@@ -468,13 +468,18 @@ const CHANGE_EVENT_SELECT =
 const campIdFrom = (ce: { campaign?: string }) => (ce.campaign?.match(/campaigns\/(\d+)/) ?? [])[1];
 
 // Channel-aware change summary (template fallback): grouped by action, counted.
+// NOTE: the Google Ads change_event resource only returns the last 30 days, so
+// we clamp the start date. For a monthly/long report this means the change log
+// covers the most recent 30 days of the period (a Google limit, not an error).
 async function changeSummary(customerId: string, start: string, end: string) {
+  const floor = fmt(addDays(new Date(), -29)); // change_event: last 30 days only
+  const qStart = start < floor ? floor : start;
   const [chanMap, rows] = await Promise.all([
     campaignChannelMap(customerId),
     gaqlSearch(
       customerId,
       `${CHANGE_EVENT_SELECT}
-       WHERE change_event.change_date_time >= '${start} 00:00:00'
+       WHERE change_event.change_date_time >= '${qStart} 00:00:00'
          AND change_event.change_date_time <= '${end} 23:59:59'
        ORDER BY change_event.change_date_time DESC LIMIT 1000`,
     ),
@@ -501,12 +506,16 @@ export async function getWeeklyOptimisations(
   start: string,
   end: string,
 ): Promise<string[]> {
+  // change_event only returns the last 30 days — clamp the start or Google
+  // rejects the query ("start date too old") for monthly/long ranges.
+  const floor = fmt(addDays(new Date(), -29));
+  const qStart = start < floor ? floor : start;
   const [chanMap, changeRows] = await Promise.all([
     campaignChannelMap(customerId),
     gaqlSearch(
       customerId,
       `${CHANGE_EVENT_SELECT}
-       WHERE change_event.change_date_time >= '${start} 00:00:00'
+       WHERE change_event.change_date_time >= '${qStart} 00:00:00'
          AND change_event.change_date_time <= '${end} 23:59:59'
        ORDER BY change_event.change_date_time DESC LIMIT 2000`,
     ),
