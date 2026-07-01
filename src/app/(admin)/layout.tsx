@@ -46,7 +46,7 @@ export default async function AdminLayout({
 
   return (
     <div className="flex min-h-screen">
-      <aside className="flex w-60 flex-col bg-[#0B1F3A] text-white">
+      <aside className="flex w-60 flex-col bg-[#0B1F3A] text-white print:hidden">
         <div className="px-6 py-6 text-xl">
           <Wordmark variant="light" />
         </div>

@@ -400,6 +400,13 @@ export default async function ClientDetailPage({
             <h2 className="text-sm font-semibold text-zinc-900">Performance</h2>
             <div className="flex flex-wrap items-start gap-3">
               <ReportSender clientId={id} />
+              <a
+                href={`/clients/${id}/report?range=${range === 0 ? "month" : range}`}
+                target="_blank"
+                className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+              >
+                ⬇ Dashboard PDF
+              </a>
               <GenerateAuditButton clientId={id} company={client.company_name} />
             </div>
           </div>

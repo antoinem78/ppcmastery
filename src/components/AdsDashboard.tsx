@@ -69,7 +69,7 @@ export function AdsDashboard({
             All campaigns · {payload.range.start} → {payload.range.end} · {payload.currency}
           </p>
         </div>
-        <div className="flex gap-1 rounded-lg bg-white/10 p-1">
+        <div className="flex gap-1 rounded-lg bg-white/10 p-1 print:hidden">
           {RANGES.map((r) => (
             <a
               key={r.w}
