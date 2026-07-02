@@ -43,6 +43,11 @@ const TOOLS: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: { clientId: { type: "string" } }, required: ["clientId"], additionalProperties: false },
   },
   {
+    name: "get_search_terms",
+    description: "Real search-term (query) data for the account's SEARCH campaigns over the last N days (default 30, max 90). Returns the actual queries that triggered ads with cost, clicks and conversions, aggregated per query and sorted by spend. Use this to GROUND negative-keyword proposals in real wasted spend (high cost, zero/low conversions) instead of guessing. Only Search campaigns have search terms; PMax/Demand Gen/Shopping return nothing here.",
+    input_schema: { type: "object", properties: { clientId: { type: "string" }, days: { type: "integer" } }, required: ["clientId"], additionalProperties: false },
+  },
+  {
     name: "propose_optimization",
     description: "File a structured optimisation proposal for human approval. You never execute changes; you propose them. For an executable proposal include `action` (one operation); otherwise it is advisory.",
     input_schema: {
@@ -77,8 +82,9 @@ RULES:
 - Use ONLY figures returned by the tools. Never invent or recompute a number, account, or campaign name. If you have not pulled the data, pull it before answering.
 - Channel attribution matters: only Search campaigns have keywords and search terms; Performance Max / Demand Gen / Shopping use assets, audiences and listing groups. Never mislabel.
 - You ANALYSE and PROPOSE. You never execute changes. To recommend a concrete change, file it with propose_optimization (include an 'action' for an executable one), then tell the user it is queued for their approval.
+- GROUND NEGATIVE KEYWORDS IN REAL DATA: before proposing any negative keyword, call get_search_terms and cite the actual wasted queries (meaningful cost, zero or very low conversions). Never invent or assume a wasted query. If get_search_terms returns nothing, say so and do not fabricate one.
 - EXECUTABLE ACTIONS need a real campaign: for pause_campaign, set_campaign_budget, or a campaign-level add_negative_keyword, FIRST call list_campaigns and put the EXACT campaign name (campaigns may be PAUSED, that is fine) in action.campaign. Never guess or leave it blank.
-- If you intend an ACCOUNT-LEVEL or shared negative (not tied to one campaign), do NOT attach an action; file it as an advisory proposal and say it needs a shared negative list. Only campaign-level single operations are executable today.
+- If you intend an ACCOUNT-LEVEL or shared negative (not tied to one campaign), do NOT attach an action; file it as an advisory proposal and say it needs a shared negative list. Only campaign-level single operations are executable today. (Tip: if the wasted query is concentrated in one Search campaign, propose it as an executable campaign-level negative there instead, so it can be applied through the tool.)
 - Change history only covers the last 30 days (Google limit); do not ask for more.
 - British English. Never use em dashes or en dashes. Be concise and specific; lead with the answer.`;
 
@@ -88,6 +94,7 @@ function statusFor(name: string, input: Record<string, unknown>): string {
     case "get_account_report": return "Pulling the account report…";
     case "get_all_account_summaries": return "Rolling up all accounts…";
     case "get_recent_changes": return "Reading the change log…";
+    case "get_search_terms": return "Pulling real search-term data…";
     case "propose_optimization": return `Filing proposal: ${typeof input.title === "string" ? input.title : ""}…`;
     default: return "Working…";
   }
@@ -149,6 +156,44 @@ async function runTool(name: string, input: Record<string, unknown>, roster: Ros
         const c = (r.campaign ?? {}) as { id?: string | number; name?: string; status?: string; advertisingChannelType?: string };
         return { id: String(c.id ?? ""), name: c.name ?? "", status: c.status ?? "", channel: c.advertisingChannelType ?? "" };
       });
+    }
+
+    case "get_search_terms": {
+      const acct = findAccount(input.clientId);
+      if (!acct) return { error: "Unknown clientId. Call list_accounts first." };
+      const days = typeof input.days === "number" && input.days > 0 ? Math.min(input.days, 90) : 30;
+      const rows = await gaqlSearch(
+        acct.reportingId,
+        `SELECT search_term_view.search_term, campaign.name, campaign.advertising_channel_type,
+                metrics.cost_micros, metrics.clicks, metrics.conversions
+         FROM search_term_view
+         WHERE segments.date DURING LAST_${days}_DAYS
+           AND campaign.advertising_channel_type = 'SEARCH'
+           AND metrics.cost_micros > 0
+         ORDER BY metrics.cost_micros DESC
+         LIMIT 500`,
+      );
+      // Aggregate per query across ad groups/campaigns so the analyst sees one
+      // line per wasted query with total spend and which campaigns it hit.
+      const agg = new Map<string, { term: string; cost: number; clicks: number; conversions: number; campaigns: Set<string> }>();
+      for (const r of rows) {
+        const term = ((r.searchTermView ?? {}) as { searchTerm?: string }).searchTerm ?? "";
+        if (!term) continue;
+        const m = (r.metrics ?? {}) as { costMicros?: string | number; clicks?: string | number; conversions?: number };
+        const camp = ((r.campaign ?? {}) as { name?: string }).name ?? "";
+        const e = agg.get(term) ?? { term, cost: 0, clicks: 0, conversions: 0, campaigns: new Set<string>() };
+        e.cost += Number(m.costMicros ?? 0) / 1_000_000;
+        e.clicks += Number(m.clicks ?? 0);
+        e.conversions += Number(m.conversions ?? 0);
+        if (camp) e.campaigns.add(camp);
+        agg.set(term, e);
+      }
+      const terms = [...agg.values()]
+        .sort((a, b) => b.cost - a.cost)
+        .slice(0, 60)
+        .map((e) => ({ query: e.term, cost: Math.round(e.cost * 100) / 100, clicks: e.clicks, conversions: Math.round(e.conversions * 100) / 100, campaigns: [...e.campaigns] }));
+      if (terms.length === 0) return { company: acct.company, days, note: "No Search search-term data for this period (the account may have no active Search campaigns).", terms: [] };
+      return { company: acct.company, days, note: "Cost is in the account currency. 'conversions' near 0 with meaningful cost = negative-keyword candidate.", terms };
     }
 
     case "get_recent_changes": {
