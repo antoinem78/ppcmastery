@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     async start(controller) {
       const emit = (e: AgentEvent) => controller.enqueue(encoder.encode(JSON.stringify(e) + "\n"));
       try {
-        await runAgentChatStream(messages, emit);
+        await runAgentChatStream(messages, emit, focusClientId);
       } catch (e) {
         emit({ type: "error", text: e instanceof Error ? e.message : "Stream failed." });
       } finally {
