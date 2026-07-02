@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { customerIdInSet } from "../index";
-import { accountAllowed, allowAllMccAccounts, guardAction } from "../write";
+import { accountAllowed, allowAllMccAccounts, guardAction, parseAction } from "../write";
 import type { ProposalAction } from "@/lib/proposals";
 
 // These cover the two scopes independently: MCC membership (customerIdInSet, the
@@ -117,5 +117,29 @@ describe("guardAction", () => {
     // cap above requested -> allowed
     process.env.GOOGLE_ADS_BUDGET_MAX_DAILY = "50";
     expect(guardAction(BUDGET, { customerId: "1112223333", campaignId: "555" })).toBeNull();
+  });
+});
+
+describe("add_shared_negative (account-level, no campaign)", () => {
+  const SHARED: ProposalAction = { kind: "add_shared_negative", text: "dental nurse jobs", matchType: "EXACT" };
+
+  it("parseAction accepts it and defaults matchType to EXACT", () => {
+    const a = parseAction({ action: { kind: "add_shared_negative", text: "foo" } });
+    expect(a).toEqual({ kind: "add_shared_negative", text: "foo", matchType: "EXACT" });
+  });
+  it("parseAction rejects it without text", () => {
+    expect(parseAction({ action: { kind: "add_shared_negative" } })).toBeNull();
+  });
+  it("is gated by the account allowlist, needs no campaign", () => {
+    process.env.GOOGLE_ADS_WRITE_ENABLED = "true";
+    process.env.GOOGLE_ADS_WRITE_CUSTOMERS = "1112223333";
+    // not on allowlist -> blocked even though MCC membership would pass
+    expect(guardAction(SHARED, { customerId: "9998887777" })).toMatch(/allowlist/i);
+    // on allowlist, no campaignId required -> allowed
+    expect(guardAction(SHARED, { customerId: "1112223333" })).toBeNull();
+  });
+  it("is blocked by the kill switch", () => {
+    process.env.GOOGLE_ADS_WRITE_CUSTOMERS = "1112223333";
+    expect(guardAction(SHARED, { customerId: "1112223333" })).toMatch(/disabled/i);
   });
 });

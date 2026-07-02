@@ -8,12 +8,15 @@ import { logActivity } from "@/lib/activity";
 
 export type ProposalStatus = "pending" | "approved" | "dismissed" | "applied" | "failed" | "rolled_back";
 
-// The three executable action shapes P5-Lite understands. Anything else is
+// The executable action shapes P5-Lite understands. Anything else is
 // advisory-only (no details.action).
 export type ProposalAction =
   | { kind: "add_negative_keyword"; campaign: string; text: string; matchType?: "EXACT" | "PHRASE" | "BROAD" }
   | { kind: "pause_campaign"; campaign: string }
-  | { kind: "set_campaign_budget"; campaign: string; dailyBudget: number };
+  | { kind: "set_campaign_budget"; campaign: string; dailyBudget: number }
+  // Account-level: adds one negative to a shared negative keyword list and
+  // attaches that list to every enabled Search campaign (no `campaign`).
+  | { kind: "add_shared_negative"; text: string; matchType?: "EXACT" | "PHRASE" | "BROAD" };
 
 export interface Proposal {
   id: string;

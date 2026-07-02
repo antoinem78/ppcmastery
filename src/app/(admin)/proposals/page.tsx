@@ -19,6 +19,7 @@ function isExecutableAction(a: ProposalAction | undefined): boolean {
   if (a.kind === "add_negative_keyword") return !!a.campaign && !!a.text;
   if (a.kind === "pause_campaign") return !!a.campaign;
   if (a.kind === "set_campaign_budget") return !!a.campaign && typeof a.dailyBudget === "number" && a.dailyBudget > 0;
+  if (a.kind === "add_shared_negative") return !!a.text; // account-level, no campaign
   return false;
 }
 
@@ -27,6 +28,7 @@ function actionLabel(a: ProposalAction): string {
     case "add_negative_keyword": return `Add negative "${a.text}" (${a.matchType ?? "BROAD"}) to ${a.campaign}`;
     case "pause_campaign": return `Pause campaign ${a.campaign}`;
     case "set_campaign_budget": return `Set ${a.campaign} daily budget to ${a.dailyBudget}`;
+    case "add_shared_negative": return `Add shared negative "${a.text}" (${a.matchType ?? "EXACT"}) across all Search campaigns`;
     default: return "Executable action";
   }
 }

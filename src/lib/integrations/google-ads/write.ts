@@ -101,6 +101,10 @@ export function parseAction(details: unknown): ProposalAction | null {
   if (kind === "set_campaign_budget" && typeof a.campaign === "string" && typeof a.dailyBudget === "number" && a.dailyBudget > 0) {
     return { kind, campaign: a.campaign, dailyBudget: a.dailyBudget };
   }
+  if (kind === "add_shared_negative" && typeof a.text === "string") {
+    const mt = a.matchType;
+    return { kind, text: a.text, matchType: mt === "EXACT" || mt === "PHRASE" || mt === "BROAD" ? mt : "EXACT" };
+  }
   return null;
 }
 
@@ -165,4 +169,21 @@ export function campaignStatusOp(campaignResource: string, status: "ENABLED" | "
 }
 export function budgetAmountOp(budgetResource: string, amountMicros: number) {
   return { campaignBudgetOperation: { update: { resourceName: budgetResource, amountMicros: String(amountMicros) }, updateMask: "amount_micros" } };
+}
+
+// ---- shared negative list ops ----
+// A shared negative list is a SharedSet(NEGATIVE_KEYWORDS) + SharedCriterion
+// entries, attached to campaigns via CampaignSharedSet. `setResource` may be a
+// temp resource name (negative id) when created in the same atomic mutate.
+export function sharedSetCreateOp(tempResource: string, name: string) {
+  return { sharedSetOperation: { create: { resourceName: tempResource, name, type: "NEGATIVE_KEYWORDS", status: "ENABLED" } } };
+}
+export function sharedCriterionCreateOp(setResource: string, text: string, matchType: string) {
+  return { sharedCriterionOperation: { create: { sharedSet: setResource, keyword: { text, matchType } } } };
+}
+export function campaignSharedSetCreateOp(campaignResource: string, setResource: string) {
+  return { campaignSharedSetOperation: { create: { campaign: campaignResource, sharedSet: setResource } } };
+}
+export function sharedCriterionRemoveOp(resourceName: string) {
+  return { sharedCriterionOperation: { remove: resourceName } };
 }

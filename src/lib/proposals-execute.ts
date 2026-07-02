@@ -5,13 +5,21 @@
 // + execution before/after) -> Slack alert -> rollback available. One op per
 // approval; no batch; no autonomous writes. Inert until the env guardrails are set.
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
+import { entityConfig } from "@/lib/config";
 import { logActivity } from "@/lib/activity";
 import { gaqlSearch, googleAdsMutate } from "@/lib/integrations/google-ads";
 import {
   parseAction, guardAction, assertMccBoundary, accountAllowed, allowAllMccAccounts,
   negativeKeywordCreateOp, criterionRemoveOp, campaignStatusOp, budgetAmountOp,
+  sharedSetCreateOp, sharedCriterionCreateOp, campaignSharedSetCreateOp, sharedCriterionRemoveOp,
 } from "@/lib/integrations/google-ads/write";
 import type { ProposalAction } from "@/lib/proposals";
+
+// Stable name for the account's managed shared negative list (reused across
+// add_shared_negative applies). No em/en dashes.
+const SHARED_SET_NAME = `${entityConfig.brandName || "Managed"} shared negatives`;
+// Google stores keyword text without match-type punctuation.
+const cleanKeyword = (t: string) => t.replace(/^[[\]"\s]+|[[\]"\s]+$/g, "").trim();
 
 export type ExecResult = { ok: true; message: string } | { error: string };
 
@@ -35,6 +43,15 @@ async function verifyAfter(
         `SELECT campaign_criterion.resource_name FROM campaign_criterion WHERE campaign_criterion.resource_name = '${resourceName}'`,
       );
       return { verified: rows.length > 0, detail: rows.length > 0 ? "Negative keyword present after write." : "Negative keyword not found after write.", observed: resourceName };
+    }
+    if (action.kind === "add_shared_negative") {
+      if (!resourceName) return { verified: false, detail: "No shared criterion resource name returned by the mutate." };
+      const rows = await gaqlSearch(
+        customerId,
+        `SELECT shared_criterion.resource_name FROM shared_criterion WHERE shared_criterion.resource_name = '${resourceName}'`,
+      );
+      const linked = Number(before.linkedCount ?? 0);
+      return { verified: rows.length > 0, detail: rows.length > 0 ? `Shared negative present after write; list attached to ${linked} Search campaign(s).` : "Shared negative not found after write.", observed: resourceName };
     }
     if (action.kind === "pause_campaign") {
       const cr = String(before.campaignResource ?? "");
@@ -109,28 +126,113 @@ async function loadProposal(id: string): Promise<LoadedProposal | { error: strin
   return { id: p.id as string, clientId: p.client_id as string, customerId, status: p.status as string, action, execution: (p.execution ?? {}) as Record<string, unknown> };
 }
 
-// Build the forward op + the before-state needed for verify/rollback.
-async function buildForward(action: ProposalAction, customerId: string): Promise<{ op: Record<string, unknown>; before: Record<string, unknown>; campaignId?: string; currentBudgetMicros?: number } | { error: string }> {
+interface Forward {
+  ops: Record<string, unknown>[]; // one atomic mutate (temp resource names allowed)
+  before: Record<string, unknown>;
+  campaignId?: string;
+  currentBudgetMicros?: number;
+}
+
+// Resolve/create the account's managed shared negative set and the set of
+// enabled+paused Search campaigns not yet attached to it.
+async function resolveSharedSet(customerId: string): Promise<
+  { setResource: string | null; searchCampaigns: string[]; unlinked: string[] } | { error: string }
+> {
+  const sets = await gaqlSearch(
+    customerId,
+    `SELECT shared_set.resource_name, shared_set.name, shared_set.type, shared_set.status
+     FROM shared_set WHERE shared_set.type = 'NEGATIVE_KEYWORDS' AND shared_set.status = 'ENABLED'`,
+  );
+  const existing = sets
+    .map((r) => (r.sharedSet ?? {}) as { resourceName?: string; name?: string })
+    .find((s) => s.name === SHARED_SET_NAME);
+  const setResource = existing?.resourceName ?? null;
+
+  const camps = await gaqlSearch(
+    customerId,
+    `SELECT campaign.resource_name FROM campaign
+     WHERE campaign.advertising_channel_type = 'SEARCH' AND campaign.status != 'REMOVED'`,
+  );
+  const searchCampaigns = camps
+    .map((r) => ((r.campaign ?? {}) as { resourceName?: string }).resourceName ?? "")
+    .filter(Boolean);
+  if (searchCampaigns.length === 0) return { error: "This account has no Search campaigns to attach a shared negative list to." };
+
+  let linked = new Set<string>();
+  if (setResource) {
+    const links = await gaqlSearch(
+      customerId,
+      `SELECT campaign_shared_set.campaign, campaign_shared_set.shared_set
+       FROM campaign_shared_set WHERE campaign_shared_set.shared_set = '${setResource}'`,
+    );
+    linked = new Set(
+      links.map((r) => ((r.campaignSharedSet ?? {}) as { campaign?: string }).campaign ?? "").filter(Boolean),
+    );
+  }
+  const unlinked = searchCampaigns.filter((c) => !linked.has(c));
+  return { setResource, searchCampaigns, unlinked };
+}
+
+// Build the forward op(s) + the before-state needed for verify/rollback.
+async function buildForward(action: ProposalAction, customerId: string): Promise<Forward | { error: string }> {
   if (action.kind === "add_negative_keyword") {
     const c = await resolveCampaign(customerId, action.campaign);
     if (!c) return { error: `Campaign "${action.campaign}" not found.` };
-    return { op: negativeKeywordCreateOp(customerId, c.campaignResource, action.text, action.matchType ?? "BROAD"), before: { campaignResource: c.campaignResource }, campaignId: c.campaignId };
+    return { ops: [negativeKeywordCreateOp(customerId, c.campaignResource, action.text, action.matchType ?? "BROAD")], before: { campaignResource: c.campaignResource }, campaignId: c.campaignId };
   }
   if (action.kind === "pause_campaign") {
     const c = await resolveCampaign(customerId, action.campaign);
     if (!c) return { error: `Campaign "${action.campaign}" not found.` };
-    return { op: campaignStatusOp(c.campaignResource, "PAUSED"), before: { campaignResource: c.campaignResource, status: c.status }, campaignId: c.campaignId };
+    return { ops: [campaignStatusOp(c.campaignResource, "PAUSED")], before: { campaignResource: c.campaignResource, status: c.status }, campaignId: c.campaignId };
+  }
+  if (action.kind === "add_shared_negative") {
+    const text = cleanKeyword(action.text);
+    if (!text) return { error: "The negative keyword text is empty." };
+    const r = await resolveSharedSet(customerId);
+    if ("error" in r) return r;
+
+    const onlyDigits = customerId.replace(/\D/g, "");
+    const ops: Record<string, unknown>[] = [];
+    let setRef = r.setResource;
+    if (!setRef) {
+      setRef = `customers/${onlyDigits}/sharedSets/-1`; // temp resource, created in this mutate
+      ops.push(sharedSetCreateOp(setRef, SHARED_SET_NAME));
+    }
+    ops.push(sharedCriterionCreateOp(setRef, text, action.matchType ?? "EXACT"));
+    for (const camp of r.unlinked) ops.push(campaignSharedSetCreateOp(camp, setRef));
+
+    return {
+      ops,
+      before: {
+        setResource: r.setResource, // null when newly created (nothing to roll back on the set)
+        setExisted: r.setResource != null,
+        linkedCount: r.searchCampaigns.length,
+        newLinks: r.unlinked.length,
+      },
+    };
   }
   // set_campaign_budget
   const c = await resolveCampaign(customerId, action.campaign);
   if (!c) return { error: `Campaign "${action.campaign}" not found.` };
   if (!c.budgetResource) return { error: "Campaign has no resolvable budget." };
   return {
-    op: budgetAmountOp(c.budgetResource, Math.round(action.dailyBudget * 1_000_000)),
+    ops: [budgetAmountOp(c.budgetResource, Math.round(action.dailyBudget * 1_000_000))],
     before: { campaignResource: c.campaignResource, budgetResource: c.budgetResource, amountMicros: c.budgetAmountMicros },
     campaignId: c.campaignId,
     currentBudgetMicros: c.budgetAmountMicros,
   };
+}
+
+// Pull the resource name of the created criterion out of a multi-op mutate
+// response (shared vs campaign criterion depending on the action).
+function extractResourceName(results: Record<string, unknown>[], action: ProposalAction): string | null {
+  const key = action.kind === "add_shared_negative" ? "sharedCriterionResult" : "campaignCriterionResult";
+  for (const r of results) {
+    const hit = (r[key] as { resourceName?: string } | undefined)?.resourceName;
+    if (hit) return hit;
+  }
+  // Fallback: first result carrying a resourceName.
+  return results.map((r) => Object.values(r)[0] as { resourceName?: string } | undefined).find((x) => x?.resourceName)?.resourceName ?? null;
 }
 
 async function alertSlack(text: string): Promise<void> {
@@ -163,7 +265,7 @@ export async function dryRunProposal(id: string): Promise<ExecResult> {
   const blocked = guardAction(loaded.action, { customerId: loaded.customerId, campaignId: fwd.campaignId, currentBudgetMicros: fwd.currentBudgetMicros }, { skipAllowlist: true });
   if (blocked) return { error: blocked };
   try {
-    await googleAdsMutate(loaded.customerId, [fwd.op], true); // validateOnly
+    await googleAdsMutate(loaded.customerId, fwd.ops, true); // validateOnly
     return { ok: true, message: `Validation passed (account ${boundary.customerId} confirmed under MCC ${boundary.mcc}). Google accepts this change; nothing was written.` };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Validation failed." };
@@ -205,10 +307,10 @@ export async function applyProposal(id: string, actor: string): Promise<ExecResu
   };
 
   try {
-    const validate = await googleAdsMutate(loaded.customerId, [fwd.op], true); // validate first
-    const res = await googleAdsMutate(loaded.customerId, [fwd.op], false); // real write
+    const validate = await googleAdsMutate(loaded.customerId, fwd.ops, true); // validate first
+    const res = await googleAdsMutate(loaded.customerId, fwd.ops, false); // real write
     const results = (res as { results?: Record<string, unknown>[] }).results ?? [];
-    const resourceName = results.map((r) => Object.values(r)[0] as { resourceName?: string } | undefined).find((x) => x?.resourceName)?.resourceName ?? null;
+    const resourceName = extractResourceName(results, loaded.action);
 
     // 3. Verify-after: re-query to confirm the change landed.
     const verify = await verifyAfter(loaded.action, loaded.customerId, fwd.before, resourceName);
@@ -256,6 +358,11 @@ export async function rollbackProposal(id: string, actor: string): Promise<ExecR
   if (loaded.action.kind === "add_negative_keyword") {
     if (!exec.resourceName) return { error: "No criterion resource name recorded; cannot roll back automatically." };
     op = criterionRemoveOp(exec.resourceName);
+  } else if (loaded.action.kind === "add_shared_negative") {
+    // Remove only the keyword we added; leave the shared set and its campaign
+    // links in place (they may carry other negatives).
+    if (!exec.resourceName) return { error: "No shared criterion resource name recorded; cannot roll back automatically." };
+    op = sharedCriterionRemoveOp(exec.resourceName);
   } else if (loaded.action.kind === "pause_campaign") {
     op = campaignStatusOp(String(before.campaignResource), (before.status as "ENABLED" | "PAUSED") ?? "ENABLED");
   } else if (loaded.action.kind === "set_campaign_budget") {

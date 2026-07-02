@@ -61,8 +61,8 @@ const TOOLS: Anthropic.Tool[] = [
           type: "object",
           description: "Optional single executable operation.",
           properties: {
-            kind: { type: "string", enum: ["add_negative_keyword", "pause_campaign", "set_campaign_budget"] },
-            campaign: { type: "string" },
+            kind: { type: "string", enum: ["add_negative_keyword", "pause_campaign", "set_campaign_budget", "add_shared_negative"] },
+            campaign: { type: "string", description: "Exact campaign name. Required for add_negative_keyword, pause_campaign, set_campaign_budget. OMIT for add_shared_negative (it is account-level)." },
             text: { type: "string" },
             matchType: { type: "string", enum: ["EXACT", "PHRASE", "BROAD"] },
             dailyBudget: { type: "number" },
@@ -84,7 +84,8 @@ RULES:
 - You ANALYSE and PROPOSE. You never execute changes. To recommend a concrete change, file it with propose_optimization (include an 'action' for an executable one), then tell the user it is queued for their approval.
 - GROUND NEGATIVE KEYWORDS IN REAL DATA: before proposing any negative keyword, call get_search_terms and cite the actual wasted queries (meaningful cost, zero or very low conversions). Never invent or assume a wasted query. If get_search_terms returns nothing, say so and do not fabricate one.
 - EXECUTABLE ACTIONS need a real campaign: for pause_campaign, set_campaign_budget, or a campaign-level add_negative_keyword, FIRST call list_campaigns and put the EXACT campaign name (campaigns may be PAUSED, that is fine) in action.campaign. Never guess or leave it blank.
-- If you intend an ACCOUNT-LEVEL or shared negative (not tied to one campaign), do NOT attach an action; file it as an advisory proposal and say it needs a shared negative list. Only campaign-level single operations are executable today. (Tip: if the wasted query is concentrated in one Search campaign, propose it as an executable campaign-level negative there instead, so it can be applied through the tool.)
+- ACCOUNT-LEVEL / SHARED negatives ARE executable now: use action.kind 'add_shared_negative' with just text + matchType (NO campaign). It adds the negative to the account's managed shared negative list and attaches that list to every Search campaign. Use this when a wasted query should be excluded across all Search campaigns. If instead the waste is confined to one campaign, use a campaign-level add_negative_keyword with the exact campaign name.
+- Shared negatives only affect Search campaigns (PMax/Demand Gen/Shopping ignore keywords); say so if the account is mostly non-Search.
 - Change history only covers the last 30 days (Google limit); do not ask for more.
 - British English. Never use em dashes or en dashes. Be concise and specific; lead with the answer.`;
 
