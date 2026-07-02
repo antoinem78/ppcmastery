@@ -1,21 +1,70 @@
 // P5-Lite guardrails — the safety layer around the ONLY Google Ads write path
-// (googleAdsMutate). Ships INERT: the kill switch is off and the allowlists are
-// empty by default, so nothing can be written until an operator explicitly sets
-// the env vars (and redeploys). Three actions only; one op per approval; no
-// batch; no autonomous writes. The worker (proposals-execute.ts) is the control
+// (googleAdsMutate). Two independent scopes gate every write:
+//
+//   1. MCC MEMBERSHIP (the hard outer boundary) — the target account must be
+//      verifiably under THIS deployment's MCC (login-customer-id). Enforced
+//      server-side via the customer_client hierarchy (see index.ts,
+//      isCustomerUnderMcc), NOT a UI parameter. No cross-MCC writes, ever.
+//   2. ACCOUNT ALLOWLIST (the operational rollout control) — GOOGLE_ADS_WRITE_
+//      CUSTOMERS, expanded deliberately (test acct -> one real acct -> groups ->
+//      full book). ALLOW_ALL_MCC_ACCOUNTS lifts this once rollout completes, so
+//      MCC membership alone gates. Default off.
+//
+// Plus the unchanged canon: kill switch (default off), one op per approval, no
+// batch, no autonomous writes, validate-only -> mutate -> verify-after ->
+// immutable audit -> rollback. The worker (proposals-execute.ts) is the control
 // boundary and re-checks all of this; the UI is not trusted.
 import type { ProposalAction } from "@/lib/proposals";
+import { isCustomerUnderMcc, currentMccId } from "./index";
 
 const onlyDigits = (s: string) => s.replace(/\D/g, "");
+
+export interface BoundaryResult {
+  ok: boolean;
+  mcc: string;
+  customerId: string;
+  reason?: string;
+}
+
+/**
+ * The HARD outer boundary, enforced server-side before any write OR validate is
+ * constructed: the target account must be verifiably under this deployment's MCC.
+ * A failure is a boundary violation (audit-logged by the caller). This must not
+ * be bypassable by a modified request — it checks the live customer_client
+ * hierarchy, never a UI-supplied value.
+ */
+export async function assertMccBoundary(customerId: string): Promise<BoundaryResult> {
+  const mcc = currentMccId();
+  const cid = onlyDigits(customerId);
+  const ok = await isCustomerUnderMcc(cid);
+  return ok
+    ? { ok: true, mcc, customerId: cid }
+    : { ok: false, mcc, customerId: cid, reason: `Account ${cid} is not under this deployment's MCC (${mcc}). Write refused.` };
+}
 
 /** Master kill switch. Case-insensitive; anything but "true" means OFF. */
 export function writeEnabled(): boolean {
   return (process.env.GOOGLE_ADS_WRITE_ENABLED ?? "").trim().toLowerCase() === "true";
 }
 
-/** Customer-id allowlist (10-digit ids, comma-separated). Empty = none allowed. */
+/** Rollout complete: allow writes to ANY account under the MCC (MCC membership
+ *  becomes the sole account gate). Default OFF — expand the allowlist first. */
+export function allowAllMccAccounts(): boolean {
+  return (process.env.ALLOW_ALL_MCC_ACCOUNTS ?? "").trim().toLowerCase() === "true";
+}
+
+/** Account allowlist — the operational rollout control (10-digit ids, comma-
+ *  separated). Ships containing only the test account. Ignored when
+ *  allowAllMccAccounts() is on. */
 export function allowedCustomers(): string[] {
   return (process.env.GOOGLE_ADS_WRITE_CUSTOMERS ?? "").split(",").map((s) => onlyDigits(s)).filter(Boolean);
+}
+
+/** The account-level rollout gate (allowlist ∪ allow-all). MCC membership is a
+ *  SEPARATE, always-enforced boundary checked async by the worker. */
+export function accountAllowed(customerId: string): boolean {
+  if (allowAllMccAccounts()) return true;
+  return allowedCustomers().includes(onlyDigits(customerId));
 }
 
 /** Campaign-id allowlist (required for pause + budget). Empty = none allowed. */
@@ -61,14 +110,33 @@ export interface GuardContext {
   currentBudgetMicros?: number; // for budget increase checks
 }
 
-/** The full pre-flight gate. Returns null when allowed, or a human reason when blocked. */
-export function guardAction(action: ProposalAction, ctx: GuardContext): string | null {
+/**
+ * The synchronous pre-flight gate (kill switch, account allowlist, campaign
+ * allowlist, budget caps). The async MCC-membership boundary is checked
+ * SEPARATELY and first by the worker — this function assumes it has passed.
+ *
+ * `opts.skipAllowlist` is used for validate-only / dry-run: MCC membership +
+ * kill switch still apply, but the account/campaign allowlist does not, so an
+ * operator can validate against a real account BEFORE adding it to the
+ * allowlist (per the staged rollout plan). Real writes never skip it.
+ *
+ * Returns null when allowed, or a human reason when blocked.
+ */
+export function guardAction(action: ProposalAction, ctx: GuardContext, opts: { skipAllowlist?: boolean } = {}): string | null {
   if (!writeEnabled()) return "Controlled writes are disabled (GOOGLE_ADS_WRITE_ENABLED is off).";
-  if (!allowedCustomers().includes(onlyDigits(ctx.customerId))) return "This account is not on the write allowlist (GOOGLE_ADS_WRITE_CUSTOMERS).";
+  if (!opts.skipAllowlist && !accountAllowed(ctx.customerId)) return "This account is not on the write allowlist (GOOGLE_ADS_WRITE_CUSTOMERS).";
 
   if (action.kind === "pause_campaign" || action.kind === "set_campaign_budget") {
     if (!ctx.campaignId) return "Could not resolve the campaign id.";
-    if (!allowedCampaigns().includes(ctx.campaignId)) return "This campaign is not on the write allowlist (GOOGLE_ADS_WRITE_CAMPAIGNS).";
+    // Campaign allowlist is an OPTIONAL extra narrowing: enforced only when set,
+    // so it can pin early testing to specific campaigns without blocking the
+    // wider account-scoped rollout. Skipped for validate-only.
+    if (!opts.skipAllowlist) {
+      const campaigns = allowedCampaigns();
+      if (campaigns.length > 0 && !campaigns.includes(ctx.campaignId)) {
+        return "This campaign is not on the write allowlist (GOOGLE_ADS_WRITE_CAMPAIGNS).";
+      }
+    }
   }
 
   if (action.kind === "set_campaign_budget") {

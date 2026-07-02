@@ -42,9 +42,14 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Membrane: V4alpha / V4a / SingularWeb planning docs are governed outside this
-# repo and must never enter its git history (kept on disk only).
+# Membrane: V4alpha / V4a / SingularWeb / WMI / SaaS strategy docs are governed
+# outside this repo and must never enter its git history (kept on disk only).
 v4alpha-*.md
 singularweb-*.md
 harvest-audit-prompt.md
 PPC_Mastery_Project_Report_v3_June2026.md
+*STRATEGY_BRIEF*
+*SAAS_UPDATE*
+*PARITY_BRIEF*
+HANDOVER_*
+*Internal Beta*

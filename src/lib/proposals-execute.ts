@@ -8,12 +8,50 @@ import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity";
 import { gaqlSearch, googleAdsMutate } from "@/lib/integrations/google-ads";
 import {
-  parseAction, guardAction, negativeKeywordCreateOp, criterionRemoveOp,
-  campaignStatusOp, budgetAmountOp,
+  parseAction, guardAction, assertMccBoundary, accountAllowed, allowAllMccAccounts,
+  negativeKeywordCreateOp, criterionRemoveOp, campaignStatusOp, budgetAmountOp,
 } from "@/lib/integrations/google-ads/write";
 import type { ProposalAction } from "@/lib/proposals";
 
 export type ExecResult = { ok: true; message: string } | { error: string };
+
+const DEPLOYMENT = process.env.APP_BASE_URL ?? "unknown";
+
+// Re-query the mutated resource to confirm the change actually landed (canon:
+// validate -> mutate -> VERIFY-AFTER -> audit). Returns a structured result that
+// goes into the immutable audit; never throws (a verify failure is recorded, not
+// swallowed as success).
+async function verifyAfter(
+  action: ProposalAction,
+  customerId: string,
+  before: Record<string, unknown>,
+  resourceName: string | null,
+): Promise<{ verified: boolean; detail: string; observed?: unknown }> {
+  try {
+    if (action.kind === "add_negative_keyword") {
+      if (!resourceName) return { verified: false, detail: "No criterion resource name returned by the mutate." };
+      const rows = await gaqlSearch(
+        customerId,
+        `SELECT campaign_criterion.resource_name FROM campaign_criterion WHERE campaign_criterion.resource_name = '${resourceName}'`,
+      );
+      return { verified: rows.length > 0, detail: rows.length > 0 ? "Negative keyword present after write." : "Negative keyword not found after write.", observed: resourceName };
+    }
+    if (action.kind === "pause_campaign") {
+      const cr = String(before.campaignResource ?? "");
+      const rows = await gaqlSearch(customerId, `SELECT campaign.status FROM campaign WHERE campaign.resource_name = '${cr}'`);
+      const status = ((rows[0]?.campaign ?? {}) as { status?: string }).status ?? "";
+      return { verified: status === "PAUSED", detail: `Campaign status after write: ${status || "unknown"}.`, observed: status };
+    }
+    // set_campaign_budget
+    const br = String(before.budgetResource ?? "");
+    const want = Math.round((action.dailyBudget ?? 0) * 1_000_000);
+    const rows = await gaqlSearch(customerId, `SELECT campaign_budget.amount_micros FROM campaign_budget WHERE campaign_budget.resource_name = '${br}'`);
+    const got = Number(((rows[0]?.campaignBudget ?? {}) as { amountMicros?: string | number }).amountMicros ?? 0);
+    return { verified: got === want, detail: `Budget after write: ${got} micros (expected ${want}).`, observed: got };
+  } catch (e) {
+    return { verified: false, detail: `Verify-after query failed: ${e instanceof Error ? e.message : "unknown"}.` };
+  }
+}
 
 interface ResolvedCampaign {
   campaignId: string;
@@ -110,13 +148,23 @@ export async function dryRunProposal(id: string): Promise<ExecResult> {
   const loaded = await loadProposal(id);
   if ("error" in loaded) return loaded;
   if (loaded.status !== "approved") return { error: "Only approved proposals can be dry-run." };
+
+  // Hard boundary first — even a dry-run must not touch an account outside the MCC.
+  const boundary = await assertMccBoundary(loaded.customerId);
+  if (!boundary.ok) {
+    await logActivity({ clientId: loaded.clientId, eventType: "proposal_boundary_violation", actor: "system:dry-run", payload: { proposal_id: id, ...boundary, phase: "dry_run" } });
+    return { error: boundary.reason ?? "Account is not under this deployment's MCC." };
+  }
+
   const fwd = await buildForward(loaded.action, loaded.customerId);
   if ("error" in fwd) return fwd;
-  const blocked = guardAction(loaded.action, { customerId: loaded.customerId, campaignId: fwd.campaignId, currentBudgetMicros: fwd.currentBudgetMicros });
+  // Dry-run skips the account/campaign allowlist so a real account can be
+  // validated BEFORE it's added to the allowlist (kill switch + caps still apply).
+  const blocked = guardAction(loaded.action, { customerId: loaded.customerId, campaignId: fwd.campaignId, currentBudgetMicros: fwd.currentBudgetMicros }, { skipAllowlist: true });
   if (blocked) return { error: blocked };
   try {
     await googleAdsMutate(loaded.customerId, [fwd.op], true); // validateOnly
-    return { ok: true, message: "Validation passed. Google accepts this change; nothing was written." };
+    return { ok: true, message: `Validation passed (account ${boundary.customerId} confirmed under MCC ${boundary.mcc}). Google accepts this change; nothing was written.` };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Validation failed." };
   }
@@ -127,28 +175,65 @@ export async function applyProposal(id: string, actor: string): Promise<ExecResu
   if ("error" in loaded) return loaded;
   if (loaded.status !== "approved") return { error: "Only an approved proposal can be applied." };
 
+  const supabase = createSupabaseAdminClient();
+
+  // 1. Hard boundary: MCC membership. A violation is audit-logged and refused.
+  const boundary = await assertMccBoundary(loaded.customerId);
+  if (!boundary.ok) {
+    await logActivity({ clientId: loaded.clientId, eventType: "proposal_boundary_violation", actor, payload: { proposal_id: id, ...boundary, phase: "apply" } });
+    await alertSlack(`⛔ P5-Lite BOUNDARY VIOLATION: ${loaded.action.kind} on ${boundary.customerId} rejected (not under MCC ${boundary.mcc}; proposal ${id}, by ${actor}).`);
+    return { error: boundary.reason ?? "Account is not under this deployment's MCC." };
+  }
+
   const fwd = await buildForward(loaded.action, loaded.customerId);
   if ("error" in fwd) return fwd;
+
+  // 2. Operational gates (kill switch, account + campaign allowlist, budget caps).
+  const allowlistOk = accountAllowed(loaded.customerId);
   const blocked = guardAction(loaded.action, { customerId: loaded.customerId, campaignId: fwd.campaignId, currentBudgetMicros: fwd.currentBudgetMicros });
   if (blocked) return { error: blocked };
 
-  const supabase = createSupabaseAdminClient();
+  // Scope block recorded on every audit entry for this write.
+  const scope = {
+    deployment: DEPLOYMENT,
+    mcc: boundary.mcc,
+    customerId: boundary.customerId,
+    mccCheck: "passed",
+    allowlistCheck: allowAllMccAccounts() ? "allow_all" : allowlistOk ? "allowed" : "not_listed",
+    approver: actor,
+    campaignId: fwd.campaignId ?? null,
+  };
+
   try {
-    await googleAdsMutate(loaded.customerId, [fwd.op], true); // validate first
+    const validate = await googleAdsMutate(loaded.customerId, [fwd.op], true); // validate first
     const res = await googleAdsMutate(loaded.customerId, [fwd.op], false); // real write
     const results = (res as { results?: Record<string, unknown>[] }).results ?? [];
     const resourceName = results.map((r) => Object.values(r)[0] as { resourceName?: string } | undefined).find((x) => x?.resourceName)?.resourceName ?? null;
 
-    const execution = { action: loaded.action, before: fwd.before, resourceName, applied_at: new Date().toISOString() };
+    // 3. Verify-after: re-query to confirm the change landed.
+    const verify = await verifyAfter(loaded.action, loaded.customerId, fwd.before, resourceName);
+
+    const execution = {
+      action: loaded.action,
+      scope,
+      before: fwd.before,
+      resourceName,
+      validateOnly: { ok: true },
+      mutate: { resourceName },
+      verifyAfter: verify,
+      applied_at: new Date().toISOString(),
+    };
+    void validate;
     await supabase.from("optimization_proposals").update({ status: "applied", applied_by: actor, applied_at: new Date().toISOString(), execution }).eq("id", id);
-    await logActivity({ clientId: loaded.clientId, eventType: "proposal_applied", actor, payload: { proposal_id: id, action: loaded.action, resourceName } });
-    await alertSlack(`✅ P5-Lite APPLIED: ${loaded.action.kind} on ${loaded.customerId} (proposal ${id}, by ${actor}).`);
-    return { ok: true, message: "Applied to Google Ads. Rollback is available." };
+    await logActivity({ clientId: loaded.clientId, eventType: "proposal_applied", actor, payload: { proposal_id: id, action: loaded.action, resourceName, scope, verifyAfter: verify } });
+    const verifyNote = verify.verified ? "verified" : `NOT verified (${verify.detail})`;
+    await alertSlack(`✅ P5-Lite APPLIED: ${loaded.action.kind} on ${boundary.customerId} under MCC ${boundary.mcc} (proposal ${id}, by ${actor}) — ${verifyNote}.`);
+    return { ok: true, message: `Applied to Google Ads (${verifyNote}). Rollback is available.` };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Apply failed.";
-    await supabase.from("optimization_proposals").update({ status: "failed", execution: { action: loaded.action, error: message } }).eq("id", id);
-    await logActivity({ clientId: loaded.clientId, eventType: "proposal_failed", actor, payload: { proposal_id: id, error: message } });
-    await alertSlack(`⚠️ P5-Lite FAILED: ${loaded.action.kind} on ${loaded.customerId} (proposal ${id}): ${message}`);
+    await supabase.from("optimization_proposals").update({ status: "failed", execution: { action: loaded.action, scope, error: message } }).eq("id", id);
+    await logActivity({ clientId: loaded.clientId, eventType: "proposal_failed", actor, payload: { proposal_id: id, error: message, scope } });
+    await alertSlack(`⚠️ P5-Lite FAILED: ${loaded.action.kind} on ${boundary.customerId} (proposal ${id}): ${message}`);
     return { error: message };
   }
 }
@@ -157,6 +242,13 @@ export async function rollbackProposal(id: string, actor: string): Promise<ExecR
   const loaded = await loadProposal(id);
   if ("error" in loaded) return loaded;
   if (loaded.status !== "applied") return { error: "Only an applied proposal can be rolled back." };
+
+  // Rollback is itself a write — same hard MCC boundary.
+  const boundary = await assertMccBoundary(loaded.customerId);
+  if (!boundary.ok) {
+    await logActivity({ clientId: loaded.clientId, eventType: "proposal_boundary_violation", actor, payload: { proposal_id: id, ...boundary, phase: "rollback" } });
+    return { error: boundary.reason ?? "Account is not under this deployment's MCC." };
+  }
 
   const exec = loaded.execution as { before?: Record<string, unknown>; resourceName?: string | null };
   const before = exec.before ?? {};
@@ -176,8 +268,8 @@ export async function rollbackProposal(id: string, actor: string): Promise<ExecR
     await googleAdsMutate(loaded.customerId, [op], true);
     await googleAdsMutate(loaded.customerId, [op], false);
     await supabase.from("optimization_proposals").update({ status: "rolled_back", rolled_back_by: actor, rolled_back_at: new Date().toISOString() }).eq("id", id);
-    await logActivity({ clientId: loaded.clientId, eventType: "proposal_rolled_back", actor, payload: { proposal_id: id } });
-    await alertSlack(`↩️ P5-Lite ROLLED BACK: ${loaded.action.kind} on ${loaded.customerId} (proposal ${id}, by ${actor}).`);
+    await logActivity({ clientId: loaded.clientId, eventType: "proposal_rolled_back", actor, payload: { proposal_id: id, mcc: boundary.mcc, customerId: boundary.customerId, deployment: DEPLOYMENT } });
+    await alertSlack(`↩️ P5-Lite ROLLED BACK: ${loaded.action.kind} on ${boundary.customerId} under MCC ${boundary.mcc} (proposal ${id}, by ${actor}).`);
     return { ok: true, message: "Rolled back." };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Rollback failed." };

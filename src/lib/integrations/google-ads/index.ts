@@ -198,6 +198,59 @@ export async function resolveReportingCustomerId(linkedCustomerId: string): Prom
   return { reportingId: null, leaves, multi: leaves.length > 1 };
 }
 
+/** This deployment's MCC (login-customer-id), digits only. Throws if unset. */
+export function currentMccId(): string {
+  return requireEnv("GOOGLE_ADS_LOGIN_CUSTOMER_ID").replace(/\D/g, "");
+}
+
+// ---- MCC-membership boundary (the hard write scope) ----
+// The set of customer ids reachable under THIS deployment's MCC, cached with a
+// short TTL. This is the source of truth for "can this deployment write here?" —
+// NOT a UI parameter. Querying customer_client from the MCC returns the full
+// descendant tree at all levels (leaves + nested sub-managers), which is exactly
+// the set a write may target.
+let mccIdCache: { ids: Set<string>; mcc: string; expiresAt: number } | null = null;
+const MCC_MEMBERSHIP_TTL_MS = 15 * 60 * 1000;
+
+/** Decide membership against a pre-fetched id set. Pure (unit-testable). */
+export function customerIdInSet(ids: Set<string>, customerId: string): boolean {
+  const cid = customerId.replace(/\D/g, "");
+  return cid.length > 0 && ids.has(cid);
+}
+
+/** All customer ids under this deployment's MCC (incl. the MCC itself and any
+ *  nested sub-managers). Cached 15 min; re-fetched on miss/expiry. */
+export async function mccAccountIds(): Promise<Set<string>> {
+  const mcc = currentMccId();
+  if (mccIdCache && mccIdCache.mcc === mcc && Date.now() < mccIdCache.expiresAt) {
+    return mccIdCache.ids;
+  }
+  const rows = await gaqlSearch(
+    mcc,
+    `SELECT customer_client.id, customer_client.manager, customer_client.status
+     FROM customer_client WHERE customer_client.status = 'ENABLED'`,
+  );
+  const ids = new Set<string>();
+  ids.add(mcc); // the MCC itself is trivially "under" itself
+  for (const r of rows) {
+    const c = (r.customerClient ?? {}) as { id?: string | number };
+    if (c.id != null) ids.add(String(c.id));
+  }
+  mccIdCache = { ids, mcc, expiresAt: Date.now() + MCC_MEMBERSHIP_TTL_MS };
+  return ids;
+}
+
+/** True when `customerId` is verifiably under this deployment's MCC hierarchy.
+ *  Server-side boundary — never trust a UI-supplied flag in its place. */
+export async function isCustomerUnderMcc(customerId: string): Promise<boolean> {
+  return customerIdInSet(await mccAccountIds(), customerId);
+}
+
+/** Test/ops seam: drop the membership cache so the next check re-fetches. */
+export function clearMccMembershipCache(): void {
+  mccIdCache = null;
+}
+
 export interface ManagedLeaf {
   id: string;
   name: string;
