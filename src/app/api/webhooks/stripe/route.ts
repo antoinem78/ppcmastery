@@ -12,6 +12,13 @@ import {
   markSubscriptionEnded,
 } from "@/lib/integrations/stripe";
 
+// Signature verification needs Node crypto + the untouched raw body — never the
+// Edge runtime, never cached. (Auth0 is also kept off this path via the proxy
+// matcher; see src/proxy.ts.)
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 15;
+
 export async function POST(request: Request) {
   const signature = request.headers.get("stripe-signature");
   if (!signature) {

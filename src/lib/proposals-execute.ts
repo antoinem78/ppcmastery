@@ -79,11 +79,16 @@ interface ResolvedCampaign {
 }
 
 async function resolveCampaign(customerId: string, name: string): Promise<ResolvedCampaign | null> {
+  // A pure-digits value is a campaign id; otherwise match by exact name. (A
+  // proposal may carry either; matching by name only used to fail on ids.)
+  const where = /^\d+$/.test(name.trim())
+    ? `campaign.id = ${name.trim()}`
+    : `campaign.name = '${name.replace(/'/g, "\\'")}'`;
   const rows = await gaqlSearch(
     customerId,
     `SELECT campaign.id, campaign.resource_name, campaign.status, campaign.name,
             campaign_budget.resource_name, campaign_budget.amount_micros
-     FROM campaign WHERE campaign.name = '${name.replace(/'/g, "\\'")}' LIMIT 1`,
+     FROM campaign WHERE ${where} LIMIT 1`,
   );
   const r = rows[0];
   if (!r) return null;

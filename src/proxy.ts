@@ -13,7 +13,11 @@ export async function proxy(request: Request) {
 
 export const config = {
   matcher: [
-    // Run on everything except static assets and metadata files.
-    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)",
+    // Run on everything except static assets and metadata files — AND except
+    // machine endpoints that self-authenticate: api/webhooks (Stripe/PandaDoc
+    // HMAC signatures) and api/cron (CRON_SECRET). Auth0 must never touch these:
+    // it buffers/alters the raw body (breaking signature verification) or
+    // redirects the session-less POST into the login flow. See HANDOVER A10.
+    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|api/webhooks|api/cron).*)",
   ],
 };
