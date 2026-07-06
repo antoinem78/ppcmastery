@@ -30,7 +30,7 @@ export const REPORT_RANGES: { key: ReportRange; label: string }[] = [
 ];
 
 // Internal window descriptor — the single source of truth for date math.
-type WindowSpec =
+export type WindowSpec =
   | { mode: "mon_sun" }
   | { mode: "rolling"; days: number }
   | { mode: "month" }
@@ -51,6 +51,22 @@ const RANGE_CACHE_KEY: Record<ReportRange, number> = { mon_sun: 7, "7d": 1, "14d
 export const parseReportRange = (raw: string | undefined): ReportRange =>
   raw === "7d" || raw === "14d" || raw === "30d" || raw === "month" ? raw : "mon_sun";
 const CACHE_TTL_MS = 30 * 60 * 1000;
+// Bump whenever the payload SHAPE changes: a mismatched version is treated as a
+// cache miss, so stale-shape rows can never break a page after a deploy (no
+// manual "clear ads_report_cache" step).
+const CACHE_VERSION = 2;
+
+// Validate + normalize a user-supplied custom range (dates arrive from URL
+// params on PUBLIC pages — never trust the format). Returns null unless both
+// are real calendar dates; swaps a reversed pair; caps the span at 366 days.
+export function normalizeCustomRange(start?: string, end?: string): { start: string; end: string } | null {
+  const ok = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(new Date(`${s}T00:00:00Z`).getTime()) && fmt(new Date(`${s}T00:00:00Z`)) === s;
+  if (!start || !end || !ok(start) || !ok(end)) return null;
+  const [s, e] = start <= end ? [start, end] : [end, start];
+  const span = (new Date(`${e}T00:00:00Z`).getTime() - new Date(`${s}T00:00:00Z`).getTime()) / 86_400_000 + 1;
+  if (span > 366) return null;
+  return { start: s, end: e };
+}
 
 export interface Kpi {
   value: number;
@@ -201,7 +217,8 @@ const addDays = (d: Date, n: number) => {
 
 // The 7-day window is special-cased to the most recent COMPLETE Mon-Sun week
 // (the weekly report period); 28/90 stay rolling "last N days excluding today".
-function windowsSpec(tz: string, spec: WindowSpec) {
+// Exported for unit tests only (this is the money-path date math).
+export function windowsSpec(tz: string, spec: WindowSpec) {
   const today = new Date(`${ymdInTz(new Date(), tz)}T00:00:00Z`);
   if (spec.mode === "month") {
     // Last COMPLETE calendar month vs the month before it.
@@ -596,7 +613,7 @@ async function buildDashboard(customerId: string, spec: WindowSpec): Promise<Das
   const monthStart = fmt(new Date(Date.UTC(todayTz.getUTCFullYear(), todayTz.getUTCMonth() - 5, 1)));
   const monthEnd = fmt(addDays(todayTz, -1));
 
-  const [cur, prev, impr, deviceRows, trendRows, termRows, convActionRows, adRows, monthRows, weekly] =
+  const [cur, prev, impr, deviceRows, trendRows, termRows, convActionRows, adRows, monthRows, weeklyPart] =
     await Promise.all([
       campaignTotals(customerId, w.start, w.end),
       campaignTotals(customerId, w.prevStart, w.prevEnd),
@@ -648,8 +665,22 @@ async function buildDashboard(customerId: string, spec: WindowSpec): Promise<Das
          FROM campaign WHERE segments.date BETWEEN '${monthStart}' AND '${monthEnd}' AND ${ACTIVE_FILTER}
          ORDER BY segments.month`,
       ),
-      buildWeekly(customerId, timeZone),
+      // When the requested window IS the Mon-Sun week, cur/prev already hold the
+      // weekly totals — only the change summary is still needed (saves two
+      // campaignTotals pulls on the most common path). Other windows build the
+      // full standalone weekly block.
+      spec.mode === "mon_sun" ? changeSummary(customerId, w.start, w.end) : buildWeekly(customerId, timeZone),
     ]);
+  const weekly: WeeklySummary = "spend" in weeklyPart
+    ? weeklyPart
+    : {
+        start: w.start,
+        end: w.end,
+        spend: kpi(cur.spend, prev.spend),
+        conversions: kpi(cur.conversions, prev.conversions),
+        changeLines: weeklyPart.lines,
+        changeCount: weeklyPart.count,
+      };
 
   // Trend (daily) — prefer by-conversion-date per day.
   const trendMap: Record<string, { spend: number; conversions: number }> = {};
@@ -956,8 +987,11 @@ export async function getDashboard(
       .eq("client_id", clientId)
       .eq("window_days", cacheKey)
       .single();
-    if (data && Date.now() - new Date(data.fetched_at).getTime() < CACHE_TTL_MS) {
-      return data.payload as DashboardPayload;
+    // A stale-shape payload (older CACHE_VERSION, or pre-versioning) is a miss —
+    // shape changes must never break a page after a deploy.
+    const cached = data?.payload as (DashboardPayload & { __v?: number }) | null;
+    if (cached && cached.__v === CACHE_VERSION && data && Date.now() - new Date(data.fetched_at).getTime() < CACHE_TTL_MS) {
+      return cached;
     }
   } catch {
     /* cache miss / table missing — fall through to live */
@@ -968,7 +1002,7 @@ export async function getDashboard(
   try {
     await supabase
       .from("ads_report_cache")
-      .upsert({ client_id: clientId, window_days: cacheKey, payload, fetched_at: new Date().toISOString() });
+      .upsert({ client_id: clientId, window_days: cacheKey, payload: { ...payload, __v: CACHE_VERSION }, fetched_at: new Date().toISOString() });
   } catch {
     /* cache write best-effort */
   }
@@ -983,20 +1017,27 @@ export async function getDashboardForRange(customerId: string, range: ReportRang
 
 // Live dashboard for an arbitrary date range (e.g. a specific past month).
 // Metrics work for any historical range; only the change log is 30-day capped.
+// Validates here (the single choke point): dates reach this from URL params on
+// public pages, and they are interpolated into GAQL — never pass them through raw.
 export async function getDashboardForCustomRange(customerId: string, start: string, end: string): Promise<DashboardPayload> {
-  return buildDashboard(customerId, { mode: "custom", start, end });
+  const norm = normalizeCustomRange(start, end);
+  if (!norm) throw new Error("Invalid custom date range (use YYYY-MM-DD, max 366 days).");
+  return buildDashboard(customerId, { mode: "custom", start: norm.start, end: norm.end });
 }
 
 // Resolve a dashboard payload + the active range key from URL search params.
 // Handles ?range=custom&start=&end= (live) and the named ranges (cached).
+// Malformed custom params quietly fall back to the default Mon-Sun view.
 export async function resolveDashboard(
   clientId: string,
   customerId: string,
   q: { range?: string; start?: string; end?: string },
 ): Promise<{ payload: DashboardPayload; rangeKey: string }> {
-  if (q.range === "custom" && q.start && q.end) {
-    const [start, end] = q.start <= q.end ? [q.start, q.end] : [q.end, q.start];
-    return { payload: await getDashboardForCustomRange(customerId, start, end), rangeKey: "custom" };
+  if (q.range === "custom") {
+    const norm = normalizeCustomRange(q.start, q.end);
+    if (norm) {
+      return { payload: await getDashboardForCustomRange(customerId, norm.start, norm.end), rangeKey: "custom" };
+    }
   }
   const range = parseReportRange(q.range);
   return { payload: await getDashboard(clientId, customerId, range), rangeKey: range };

@@ -33,6 +33,10 @@ export function CommandChat() {
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Tracks the CURRENT scope so an in-flight reply for account A never paints
+  // into (or persists under) account B after a mid-stream switch.
+  const scopeRef = useRef(scope);
+  useEffect(() => { scopeRef.current = scope; }, [scope]);
 
   const scrollDown = () => requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }));
 
@@ -66,12 +70,12 @@ export function CommandChat() {
 
   const scopeLabel = scope === "general" ? "All accounts" : accounts.find((a) => a.clientId === scope)?.company || "This account";
 
-  async function persist(msgs: Msg[]) {
+  async function persist(toScope: string, msgs: Msg[]) {
     try {
       await fetch("/api/agent/conversation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope, messages: msgs }),
+        body: JSON.stringify({ scope: toScope, messages: msgs }),
       });
     } catch { /* best-effort */ }
   }
@@ -91,18 +95,21 @@ export function CommandChat() {
     setInput("");
     setStatus(null);
     setBusy(true);
+    const sendScope = scope; // freeze: replies belong to the scope they were asked in
     const history: Msg[] = [...messages, { role: "user", content: q }];
     setMessages([...history, { role: "assistant", content: "" }]);
     scrollDown();
 
     let assistant = ""; // accumulates the final answer (reset drops tool preamble)
-    const paint = () => setMessages([...history, { role: "assistant", content: assistant }]);
+    const paint = () => {
+      if (scopeRef.current === sendScope) setMessages([...history, { role: "assistant", content: assistant }]);
+    };
 
     try {
       const res = await fetch("/api/agent/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, focusClientId: scope === "general" ? null : scope }),
+        body: JSON.stringify({ messages: history, focusClientId: sendScope === "general" ? null : sendScope }),
       });
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({}));
@@ -133,9 +140,12 @@ export function CommandChat() {
       setStatus(null);
       setBusy(false);
       const final: Msg[] = [...history, { role: "assistant", content: assistant }];
-      setMessages(final);
-      scrollDown();
-      if (assistant.trim()) void persist(final);
+      if (scopeRef.current === sendScope) {
+        setMessages(final);
+        scrollDown();
+      }
+      // Always persist under the ORIGINATING scope, even if the user switched.
+      if (assistant.trim()) void persist(sendScope, final);
     }
   }
 
