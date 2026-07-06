@@ -1,12 +1,14 @@
 // Admin form to create a new client + set their bespoke monthly quote.
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "../actions";
 import { PLATFORM_OPTIONS } from "@/lib/tiers";
 import { ACCESS_TASK_LIST } from "@/lib/access-tasks";
 import { entityConfig } from "@/lib/config";
 
 export default function NewClientPage() {
+  // Reviewer/demo deployments: no client creation at all.
+  if (entityConfig.reviewMode) notFound();
   // Reporting-only deployments have no onboarding funnel — there is no "new
   // client" flow; managed accounts are added instead.
   if (entityConfig.reportingOnly) redirect("/clients/reporting");

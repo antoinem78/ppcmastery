@@ -3,7 +3,9 @@
 // accounts are shown ticked + disabled. Built for the MCC Command Center clone
 // (BJ main MCC, ~129 accounts), but works for any deployment.
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
+import { entityConfig } from "@/lib/config";
 import { listManagedAccounts, GoogleAdsError } from "@/lib/integrations/google-ads";
 import { SelectAllCheckboxes } from "@/components/SelectAllCheckboxes";
 import { addReportingClientsBulk } from "../actions";
@@ -11,6 +13,10 @@ import { addReportingClientsBulk } from "../actions";
 export const dynamic = "force-dynamic";
 
 export default async function ImportAccountsPage() {
+  // Review deployments share the operator MCC, so this listing would expose
+  // REAL account names — the one leak a fresh database can't prevent. 404 it.
+  if (entityConfig.reviewMode) notFound();
+
   let leaves: Awaited<ReturnType<typeof listManagedAccounts>> = [];
   let loadError: string | null = null;
   try {

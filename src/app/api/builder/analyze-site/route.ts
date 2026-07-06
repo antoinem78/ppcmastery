@@ -4,9 +4,14 @@ import { NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth/auth0";
 import { isAgencyAdmin } from "@/lib/auth/roles";
 import { analyzeSite } from "@/lib/integrations/anthropic/site-analysis";
+import { entityConfig } from "@/lib/config";
 import type { AnalyzeSiteRequest } from "@/lib/builder/contract";
 
 export async function POST(req: Request) {
+  // No Builder on reviewer/demo deployments — block its endpoints too.
+  if (entityConfig.reviewMode) {
+    return NextResponse.json({ error: "The Builder is disabled on the review workspace." }, { status: 403 });
+  }
   const session = await auth0.getSession();
   if (!session) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   if (!isAgencyAdmin(session.user as Record<string, unknown>)) {

@@ -6,6 +6,7 @@
 // campaign is always created PAUSED (see publish.ts).
 import { NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth/auth0";
+import { entityConfig } from "@/lib/config";
 import { isAgencyAdmin } from "@/lib/auth/roles";
 import { GoogleAdsError } from "@/lib/integrations/google-ads";
 import { assertMccBoundary, accountAllowed, allowAllMccAccounts } from "@/lib/integrations/google-ads/write";
@@ -23,6 +24,11 @@ interface PublishBody {
 }
 
 export async function POST(req: Request) {
+  // Reviewer/demo deployments have no Builder (route 404s); block its write
+  // endpoint too — defense in depth against a direct POST.
+  if (entityConfig.reviewMode) {
+    return NextResponse.json({ error: "Publishing is disabled on the review workspace." }, { status: 403 });
+  }
   const session = await auth0.getSession();
   if (!session) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   if (!isAgencyAdmin(session.user as Record<string, unknown>)) {

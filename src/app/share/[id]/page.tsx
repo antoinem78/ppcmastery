@@ -8,6 +8,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { resolveDashboard } from "@/lib/integrations/google-ads/reporting";
 import { entityConfig } from "@/lib/config";
 import { Wordmark } from "@/components/Wordmark";
+import { EntityFooter } from "@/components/EntityFooter";
 import { AdsDashboard } from "@/components/AdsDashboard";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +66,9 @@ export default async function SharedDashboardPage({
           </div>
         )}
         <p className="mt-6 text-center text-xs text-zinc-400">Powered by {brand}</p>
+        <div className="mt-3 flex justify-center text-center">
+          <EntityFooter variant="dark" />
+        </div>
       </main>
     </div>
   );

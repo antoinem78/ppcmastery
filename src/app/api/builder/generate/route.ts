@@ -13,9 +13,14 @@ import {
   generateKeywords,
   generateSitelinks,
 } from "@/lib/integrations/anthropic/adforge-copy";
+import { entityConfig } from "@/lib/config";
 import type { GenerateRequest } from "@/lib/builder/contract";
 
 export async function POST(req: Request) {
+  // No Builder on reviewer/demo deployments — block its endpoints too.
+  if (entityConfig.reviewMode) {
+    return NextResponse.json({ error: "The Builder is disabled on the review workspace." }, { status: 403 });
+  }
   const session = await auth0.getSession();
   if (!session) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   if (!isAgencyAdmin(session.user as Record<string, unknown>)) {

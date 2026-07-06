@@ -5,11 +5,21 @@ import { redirect } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { requireAgencyAdmin } from "@/lib/auth/guard";
 import { logActivity } from "@/lib/activity";
+import { entityConfig } from "@/lib/config";
 import { CUSTOM_TIER_KEY } from "@/lib/tiers";
 import { sendClientReportToSlack } from "@/lib/reports";
 import type { ReportRange } from "@/lib/integrations/google-ads/reporting";
 
 const REPORT_RANGE_KEYS: ReportRange[] = ["mon_sun", "7d", "14d", "30d", "month"];
+
+// Reviewer/demo deployments are a curated window: no client creation, import,
+// or deletion (server actions are directly POSTable, so the pages hiding the
+// buttons is not enough).
+function rejectInReviewMode(): void {
+  if (entityConfig.reviewMode) {
+    throw new Error("This action is disabled on the review workspace.");
+  }
+}
 
 // Build a report for the chosen range and post the draft to the Slack review
 // channel. Admin-only; returns the result for the client component to display.
@@ -41,6 +51,7 @@ export async function saveReportPrompt(clientId: string, formData: FormData): Pr
 // Create a client record + its onboarding state, then jump to the client page
 // (where the shareable onboarding link lives). Admin-only.
 export async function createClient(formData: FormData): Promise<void> {
+  rejectInReviewMode();
   const { email: adminEmail } = await requireAgencyAdmin();
 
   const companyName = String(formData.get("company_name") ?? "").trim();
@@ -343,6 +354,7 @@ export async function resumeClientSubscription(clientId: string): Promise<void> 
 // activity_log, ads_report_cache, weekly_reports all cascade on delete). Admin
 // only. Does NOT cancel any Stripe subscription — that's a separate action.
 export async function deleteClient(clientId: string): Promise<void> {
+  rejectInReviewMode();
   await requireAgencyAdmin();
   const supabase = createSupabaseAdminClient();
   const { error } = await supabase.from("clients").delete().eq("id", clientId);
@@ -356,6 +368,7 @@ export async function deleteClient(clientId: string): Promise<void> {
 // Mastery sub-MCC). No wizard, no contract, no payment — we verify we can reach
 // the account, resolve the reporting leaf, and stand up the dashboard.
 export async function addReportingClient(formData: FormData): Promise<void> {
+  rejectInReviewMode();
   const { email: adminEmail } = await requireAgencyAdmin();
 
   const companyName = String(formData.get("company_name") ?? "").trim();
@@ -442,6 +455,7 @@ export async function addReportingClient(formData: FormData): Promise<void> {
 // per-account verify; already-imported accounts are skipped. Built for the MCC
 // Command Center clone (BJ main MCC, ~129 accounts).
 export async function addReportingClientsBulk(formData: FormData): Promise<void> {
+  rejectInReviewMode();
   const { email: adminEmail } = await requireAgencyAdmin();
 
   const selectedIds = new Set(formData.getAll("account_ids").map(String));

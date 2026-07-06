@@ -1,9 +1,13 @@
 // Admin form to add a reporting-only client — an existing client whose Google
 // Ads account already sits under our MCC (no wizard / contract / payment).
 import Link from "next/link";
+import { notFound } from "next/navigation";
+import { entityConfig } from "@/lib/config";
 import { addReportingClient } from "../actions";
 
 export default function AddReportingClientPage() {
+  // Reviewer/demo deployments: no account-adding surface.
+  if (entityConfig.reviewMode) notFound();
   return (
     <div className="max-w-xl p-10">
       <h1 className="text-2xl font-semibold text-zinc-900">Add managed account</h1>

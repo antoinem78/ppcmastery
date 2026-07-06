@@ -12,14 +12,18 @@ import Link from "next/link";
 import { auth0 } from "@/lib/auth/auth0";
 import { isAgencyAdmin } from "@/lib/auth/roles";
 import { pendingProposalCount } from "@/lib/proposals";
+import { entityConfig } from "@/lib/config";
 import { Wordmark } from "@/components/Wordmark";
+import { EntityFooter } from "@/components/EntityFooter";
 import { CommandChat } from "@/components/CommandChat";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/clients", label: "Clients" },
   { href: "/proposals", label: "Proposals" },
-  { href: "/builder", label: "Campaign Builder" },
+  // The Builder is hidden on reviewer/demo deployments (the route itself 404s
+  // too — see builder/page.tsx).
+  ...(entityConfig.reviewMode ? [] : [{ href: "/builder", label: "Campaign Builder" }]),
 ];
 
 export default async function AdminLayout({
@@ -50,6 +54,11 @@ export default async function AdminLayout({
       <aside className="flex w-60 flex-col bg-[#0B1F3A] text-white print:hidden">
         <div className="px-6 py-6 text-xl">
           <Wordmark variant="light" />
+          {entityConfig.workspaceName && (
+            <div className="mt-2 inline-block rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-white/70">
+              {entityConfig.workspaceName}
+            </div>
+          )}
         </div>
         <nav className="flex-1 space-y-1 px-3">
           {navItems.map((item) => (
@@ -78,6 +87,9 @@ export default async function AdminLayout({
           >
             Log out
           </a>
+          <div className="mt-4">
+            <EntityFooter variant="light" />
+          </div>
         </div>
       </aside>
       <main className="flex-1 bg-zinc-50">{children}</main>

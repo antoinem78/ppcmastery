@@ -36,6 +36,26 @@ export const entityConfig = {
    *  premium clients): no onboarding funnel — only "Add managed account" +
    *  dashboards + weekly reports. The full onboarding portal leaves this off. */
   reportingOnly: process.env.PORTAL_REPORTING_ONLY === "true",
+
+  /** Reviewer/demo deployment (e.g. the Google Standard Access review tenant):
+   *  a curated window onto a controlled test account. Hides the Campaign
+   *  Builder and every client-creation/import surface (the MCC import would
+   *  list REAL account names from the shared MCC — the one data leak a fresh
+   *  database can't prevent). Writes stay allowlisted as usual. */
+  reviewMode: process.env.PORTAL_REVIEW_MODE === "true",
+
+  /** Optional workspace label shown in the sidebar under the wordmark,
+   *  e.g. "PPC Mastery Review Workspace" on the review deployment. */
+  workspaceName: process.env.PORTAL_WORKSPACE_NAME ?? "",
+
+  /** Legal/entity footer line shown on every authenticated screen and /share,
+   *  e.g. "PPC Mastery AI — operated by Baptiste Jenard PPC · MCC 447-370-6744". */
+  entityFooterLine: process.env.ENTITY_FOOTER_LINE ?? "",
+
+  /** Public legal pages (the live marketing-site URLs). Shown next to the
+   *  entity footer line and on the logged-out landing. */
+  privacyUrl: process.env.LEGAL_PRIVACY_URL ?? "",
+  termsUrl: process.env.LEGAL_TERMS_URL ?? "",
 };
 
 export function formatMoney(amount: number): string {
