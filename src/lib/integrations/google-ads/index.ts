@@ -139,7 +139,12 @@ export async function googleAdsMutate(
       /NOT_FOUND|INVALID_CUSTOMER|USER_PERMISSION_DENIED|CUSTOMER_NOT_FOUND/i.test(text);
     throw new GoogleAdsError(extractAdsError(body), invalid);
   }
-  return body as { results: Record<string, unknown>[] };
+  // The unified GoogleAdsService.Mutate response carries its per-op results in
+  // `mutateOperationResponses` (NOT `results`, which the per-service mutates
+  // use). Normalize so callers can extract resource names either way — without
+  // this, applied writes recorded no resource name and could not be rolled back.
+  const b = body as { mutateOperationResponses?: Record<string, unknown>[]; results?: Record<string, unknown>[] };
+  return { results: b.mutateOperationResponses ?? b.results ?? [] };
 }
 
 /**

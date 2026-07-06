@@ -100,9 +100,9 @@ function ProposalCard({ p, company, pending }: { p: Proposal; company: string; p
         </form>
       )}
 
-      <form action={deleteProposalAction.bind(null, p.id)} className="mt-3 border-t border-zinc-100 pt-2 text-right">
-        <ConfirmSubmitButton message="Permanently delete this proposal? This cannot be undone." className="text-xs text-zinc-400 transition-colors hover:text-red-600">
-          Delete
+      <form action={deleteProposalAction.bind(null, p.id)} className="mt-3 border-t border-zinc-100 pt-3 text-right">
+        <ConfirmSubmitButton message="Permanently delete this proposal? This cannot be undone." className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-700">
+          Delete proposal
         </ConfirmSubmitButton>
       </form>
     </div>

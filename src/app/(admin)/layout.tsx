@@ -21,9 +21,11 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/clients", label: "Clients" },
   { href: "/proposals", label: "Proposals" },
-  // The Builder is hidden on reviewer/demo deployments (the route itself 404s
-  // too — see builder/page.tsx).
-  ...(entityConfig.reviewMode ? [] : [{ href: "/builder", label: "Campaign Builder" }]),
+  // The Builder stays visible in review mode: it is the heart of the product
+  // (and demonstrates the declared API usage to a reviewer). Publishing is
+  // write-safe there — the MCC boundary + account allowlist pin it to the
+  // controlled test account.
+  { href: "/builder", label: "Campaign Builder" },
 ];
 
 export default async function AdminLayout({
