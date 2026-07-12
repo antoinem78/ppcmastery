@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "proposal-engine",
+  "main": "src/index.js",
+  "compatibility_date": "2026-06-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "proposal-engine",
+      // Replace with the real ID printed by: npx wrangler d1 create proposal-engine
+      "database_id": "REPLACE_AFTER_D1_CREATE"
+    }
+  ],
+  "vars": {
+    // Public base URL used to build proposal links returned by the API.
+    // First deploy: the workers.dev URL. Then the custom domain, e.g.
+    // https://proposals.<entity-domain>
+    "APP_URL": "REPLACE_AFTER_FIRST_DEPLOY"
+  }
+  // Custom domain via zone route (see DEPLOYMENT BRIEF step 7 — do NOT use
+  // custom_domain:true; use a proxied placeholder A record + this route):
+  // ,"routes": [{ "pattern": "proposals.<entity-domain>/*", "zone_name": "<entity-domain>" }]
+  //
+  // Secrets (set via: npx wrangler secret bulk <file>.json — never pipe on Windows):
+  //   API_TOKEN       required, protects /api/* and /admin
+  //   WEBHOOK_SECRET  recommended, HMAC-signs outgoing webhooks (X-Signature)
+  //   WEBHOOK_URL     optional, receiver for proposal events (portal webhook or n8n)
+}

@@ -1,0 +1,113 @@
+{
+  "expires_at": "2026-07-31",
+  "data": {
+    "brand": {
+      "name": "WMI",
+      "accent": "#2733C9",
+      "website": "wmiltd.com"
+    },
+    "proposal": {
+      "title": "Google Ads Growth Engine for Meridian Dental",
+      "number": "WMI-2026-014",
+      "valid_until": "2026-07-31",
+      "currency": "USD"
+    },
+    "client": {
+      "name": "Sarah Chen",
+      "company": "Meridian Dental Group",
+      "email": "sarah@meridiandental.com"
+    },
+    "prepared_by": {
+      "name": "Antoine Martin",
+      "title": "Managing Director",
+      "email": "antoine@wmiltd.com"
+    },
+    "intro": "Meridian Dental Group is spending on Google Ads without visibility into which clicks become booked patients. This proposal covers a full rebuild of your tracking foundation, a restructured Google Ads account, and ongoing management tied to cost per booked appointment rather than cost per click.\n\nEverything below is scoped for your three locations and your current monthly budget of around 8,000 USD.",
+    "goals": [
+      "Track booked appointments back to the exact keyword and ad that produced them",
+      "Reduce cost per booked appointment by 30 percent within 90 days",
+      "Build a reporting view your front desk team can actually read"
+    ],
+    "scope": [
+      {
+        "title": "Tracking foundation",
+        "description": "Server-side tracking via a dedicated tagging server, wired into your booking system so offline conversions flow back into Google Ads.",
+        "deliverables": [
+          "Server-side GTM container on a first-party subdomain",
+          "GCLID capture into your CRM on every form and call",
+          "Offline conversion import for booked and showed appointments",
+          "GA4 property cleanup and conversion audit"
+        ]
+      },
+      {
+        "title": "Account rebuild",
+        "description": "Restructure of the Google Ads account around location-level campaigns with clean conversion signals.",
+        "deliverables": [
+          "Keyword and search term audit of the last 12 months",
+          "New campaign structure per location",
+          "Ad copy refresh with two variants per ad group",
+          "Negative keyword system and shared budgets"
+        ]
+      },
+      {
+        "title": "Ongoing management",
+        "description": "Weekly optimization against cost per booked appointment, with a monthly review call.",
+        "deliverables": [
+          "Weekly bid, budget, and search term reviews",
+          "Monthly performance report and 30-minute call",
+          "Landing page recommendations as needed"
+        ]
+      }
+    ],
+    "timeline": [
+      {
+        "phase": "Week 1",
+        "title": "Audit and access",
+        "description": "Account access, tracking audit, booking system review."
+      },
+      {
+        "phase": "Weeks 2 to 3",
+        "title": "Tracking build",
+        "description": "Server-side container, GCLID pipeline, offline conversion import live."
+      },
+      {
+        "phase": "Week 4",
+        "title": "Account rebuild",
+        "description": "New structure launched, old campaigns wound down."
+      },
+      {
+        "phase": "Ongoing",
+        "title": "Optimization",
+        "description": "Weekly management against cost per booked appointment."
+      }
+    ],
+    "pricing": {
+      "items": [
+        {
+          "label": "Tracking foundation and account rebuild",
+          "detail": "One-time setup, weeks 1 to 4",
+          "amount": 2400,
+          "period": "once"
+        },
+        {
+          "label": "Ongoing management",
+          "detail": "Month to month, cancel with 30 days notice",
+          "amount": 1200,
+          "period": "monthly"
+        },
+        {
+          "label": "Ad spend",
+          "detail": "Paid directly to Google, not through us",
+          "amount": "Billed by Google"
+        }
+      ],
+      "notes": "Management fee is flat, not a percentage of spend. No long-term contract."
+    },
+    "terms": [
+      "Setup fee is invoiced 50 percent on acceptance and 50 percent on tracking go-live.",
+      "Management runs month to month and can be cancelled with 30 days written notice.",
+      "Ad spend is paid directly to Google via your own billing profile.",
+      "All accounts, containers, and data remain your property."
+    ]
+  }
+}

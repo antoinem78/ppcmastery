@@ -37,7 +37,7 @@ import {
   getDocumentStatus,
   createSigningSession,
   markContractSigned,
-} from "@/lib/integrations/pandadoc";
+} from "@/lib/integrations/contracts";
 
 // Contract generation polls PandaDoc for a few seconds; allow headroom.
 export const maxDuration = 60;

@@ -1,0 +1,72 @@
+{
+  "expires_at": "2026-07-31",
+  "data": {
+    "brand": {
+      "name": "Web Marketing International",
+      "accent": "#2733C9",
+      "website": "webmarketinginternational.com"
+    },
+    "proposal": {
+      "title": "Google Ads Growth Engine for [Client Company]",
+      "number": "WMI-FZ-2026-001",
+      "valid_until": "2026-07-31",
+      "currency": "USD"
+    },
+    "client": {
+      "name": "[Contact Name]",
+      "company": "[Client Company]",
+      "email": "[client@example.com]"
+    },
+    "prepared_by": {
+      "name": "Antoine Martin",
+      "title": "Managing Director",
+      "email": "antoine@webmarketinginternational.com"
+    },
+    "intro": "Replace with your intro. Blank lines become paragraphs.",
+    "goals": [
+      "First objective",
+      "Second objective"
+    ],
+    "scope": [
+      {
+        "title": "Work stream",
+        "description": "What it covers.",
+        "deliverables": ["Item one", "Item two"]
+      }
+    ],
+    "timeline": [
+      {
+        "phase": "Week 1",
+        "title": "Phase name",
+        "description": "What happens."
+      }
+    ],
+    "pricing": {
+      "items": [
+        {
+          "label": "Setup",
+          "detail": "One-time",
+          "amount": 2400,
+          "period": "once"
+        },
+        {
+          "label": "Management",
+          "detail": "Month to month, cancel with 30 days notice",
+          "amount": 1200,
+          "period": "monthly"
+        },
+        {
+          "label": "Ad spend",
+          "detail": "Paid directly to Google, not through us",
+          "amount": "Billed by Google"
+        }
+      ],
+      "notes": "Management fee is flat, not a percentage of spend."
+    },
+    "terms": [
+      "Setup fee is invoiced 50 percent on acceptance and 50 percent on go-live.",
+      "Management runs month to month and can be cancelled with 30 days written notice.",
+      "All accounts, containers, and data remain your property."
+    ]
+  }
+}

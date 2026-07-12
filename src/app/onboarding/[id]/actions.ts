@@ -77,7 +77,7 @@ export async function generateContract(clientId: string): Promise<void> {
   }
 
   const { createContractDocument, ensureDocumentSent } = await import(
-    "@/lib/integrations/pandadoc"
+    "@/lib/integrations/contracts"
   );
 
   if (state.pandadoc_document_id) {
@@ -131,7 +131,7 @@ export async function confirmContractSigned(clientId: string): Promise<void> {
     .single();
   if (state?.current_step === "contract" && state.pandadoc_document_id) {
     const { getDocumentStatus, markContractSigned } = await import(
-      "@/lib/integrations/pandadoc"
+      "@/lib/integrations/contracts"
     );
     const status = await getDocumentStatus(state.pandadoc_document_id);
     if (status === "document.completed") {

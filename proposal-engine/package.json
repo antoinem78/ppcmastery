@@ -1,0 +1,20 @@
+{
+  "name": "proposal-engine",
+  "version": "1.0.0",
+  "description": "Self-hosted proposal generation, tracking, and acceptance engine (Cloudflare Workers + D1)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --no-warnings test/harness.mjs",
+    "db:schema": "wrangler d1 execute proposal-engine --remote --file=schema.sql",
+    "db:schema:local": "wrangler d1 execute proposal-engine --local --file=schema.sql"
+  },
+  "dependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
