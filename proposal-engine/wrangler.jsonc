@@ -16,6 +16,24 @@
     // First deploy: the workers.dev URL. Then the custom domain, e.g.
     // https://proposals.<entity-domain>
     "APP_URL": "https://proposal-engine.ppcmastery.workers.dev"
+  },
+  // Second instance for the AdEnergy/BJ portal (same billing entity by the
+  // owner's recorded exception): own worker, own D1, own secrets. Deploy with
+  // `wrangler deploy -e adenergy`; secrets with `wrangler secret bulk -e adenergy`.
+  "env": {
+    "adenergy": {
+      "name": "proposal-engine-adenergy",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "proposal-engine-adenergy",
+          "database_id": "a232143b-54a2-4604-ac0e-5fabe259433d"
+        }
+      ],
+      "vars": {
+        "APP_URL": "https://proposal-engine-adenergy.ppcmastery.workers.dev"
+      }
+    }
   }
   // Custom domain via zone route (see DEPLOYMENT BRIEF step 7 — do NOT use
   // custom_domain:true; use a proxied placeholder A record + this route):
