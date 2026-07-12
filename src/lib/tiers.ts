@@ -10,8 +10,10 @@
 /** Marker stored in clients.service_tier — all MaaS clients are 'custom'. */
 export const CUSTOM_TIER_KEY = "custom";
 
-/** Single client-facing plan name (quote + contract). */
-export const CUSTOM_PLAN_NAME = "Paid Search — Managed Service";
+/** Single client-facing plan name (quote + contract). No long dashes in
+ *  client-facing copy (house rule) — this appears on contracts, Stripe
+ *  checkout, and the client home. */
+export const CUSTOM_PLAN_NAME = "Paid Search Managed Service";
 
 /** Platforms an admin can select at client creation. */
 export const PLATFORM_OPTIONS = ["Google Ads", "Microsoft Ads", "Meta Ads"] as const;
