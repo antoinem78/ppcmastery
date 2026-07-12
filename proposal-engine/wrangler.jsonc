@@ -8,14 +8,14 @@
       "binding": "DB",
       "database_name": "proposal-engine",
       // Replace with the real ID printed by: npx wrangler d1 create proposal-engine
-      "database_id": "REPLACE_AFTER_D1_CREATE"
+      "database_id": "9f7b7f0f-5e04-4a5f-9440-594dc9e62eaa"
     }
   ],
   "vars": {
     // Public base URL used to build proposal links returned by the API.
     // First deploy: the workers.dev URL. Then the custom domain, e.g.
     // https://proposals.<entity-domain>
-    "APP_URL": "REPLACE_AFTER_FIRST_DEPLOY"
+    "APP_URL": "https://proposal-engine.ppcmastery.workers.dev"
   }
   // Custom domain via zone route (see DEPLOYMENT BRIEF step 7 — do NOT use
   // custom_domain:true; use a proxied placeholder A record + this route):
