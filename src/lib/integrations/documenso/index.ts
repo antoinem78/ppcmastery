@@ -48,7 +48,9 @@ export async function createAgreementDocument(client: ContractClient, quote: Con
   const createRes = await api("/documents", {
     method: "POST",
     body: JSON.stringify({
-      title: `${content.title} — ${client.company_name}`,
+      // Company-first, no long dashes (house rule), short enough that the
+      // Documenso viewer/email subject does not truncate it.
+      title: `${client.company_name} Services Agreement`,
       externalId: client.id, // lets the webhook resolve the client directly
       recipients: [
         {
