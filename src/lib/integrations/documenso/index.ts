@@ -60,11 +60,11 @@ export async function createAgreementDocument(client: ContractClient, quote: Con
       meta: {
         subject: `Your ${content.providerName} agreement`,
         message: "Please review and sign your services agreement.",
-        // Typed (stylised name) signatures ONLY: renders instantly and clearly
-        // in the field. The draw pad proved unreliable in testing and upload
-        // is unnecessary for a service agreement.
+        // Typed (stylised name) + drawn signatures; upload disabled (unnecessary
+        // for a service agreement). Typed renders instantly in the field; drawn
+        // stays available for signers who prefer a real scrawl.
         typedSignatureEnabled: true,
-        drawSignatureEnabled: false,
+        drawSignatureEnabled: true,
         uploadSignatureEnabled: false,
       },
     }),
