@@ -1,13 +1,18 @@
 # Anthropic's claude-code-security-review runs the same security audit we ran by
-# hand, automatically on every pull request — it reviews ONLY the PR's diff and
-# posts findings as inline PR comments. Requires an ANTHROPIC_API_KEY repo secret
-# (Settings -> Secrets and variables -> Actions). Also runnable on demand from the
-# Actions tab (workflow_dispatch).
+# hand, automatically on every push to main — it reviews the pushed commit range
+# and surfaces findings in the run's step summary + logs. Requires an
+# ANTHROPIC_API_KEY repo secret (Settings -> Secrets and variables -> Actions).
+# Also runnable on demand from the Actions tab (workflow_dispatch).
+#
+# Note: this matches the current push-straight-to-main workflow. If the project
+# later moves to pull requests, add a `pull_request:` trigger for inline PR
+# comments (comment-pr: true), which is this action's richest mode.
 name: Security Review
 
 on:
-  pull_request:
-    # Skip pure-docs PRs; review anything that touches real code/config.
+  push:
+    branches: [main]
+    # Only when real code/config changed; skip pure-docs pushes.
     paths:
       - "src/**"
       - "proposal-engine/**"
@@ -16,14 +21,12 @@ on:
       - "next.config.ts"
   workflow_dispatch:
 
-# Don't stack reviews on rapid pushes to the same PR.
 concurrency:
   group: security-review-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   security-review:
@@ -32,10 +35,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # full history so the action can diff the PR base
+          fetch-depth: 0 # full history so the action can diff the pushed range
 
       - name: Claude security review
         uses: anthropics/claude-code-security-review@main
         with:
           claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          comment-pr: true
