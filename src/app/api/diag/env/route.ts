@@ -100,6 +100,12 @@ export async function GET() {
   const stripeKey = process.env.STRIPE_SECRET_KEY ?? "";
   const emailFrom = process.env.EMAIL_FROM ?? "";
   const derived = {
+    // Which build is actually serving. Vercel binds env at BUILD time, so
+    // "variable missing" and "build predates the variable" look identical in a
+    // boolean list. These two make that distinguishable at a glance: compare
+    // the sha against the commit you expected to be live.
+    commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
+    vercel_env: process.env.VERCEL_ENV ?? "local",
     // Live key + test webhook (or vice versa) = client pays, nothing activates.
     stripe_mode: stripeKey.startsWith("sk_live_")
       ? "live"
