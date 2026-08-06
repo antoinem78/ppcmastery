@@ -115,6 +115,13 @@ export async function finalizePaidClient(params: {
     eventType: "client_activated",
     actor: `system:${params.source}`,
   });
+
+  // Payment confirmation email — this function is the once-only payment
+  // transition (webhook and checkout-return both land here; the guard above
+  // means exactly one send). Best-effort, env-gated no-op when unconfigured.
+  const { sendPaymentConfirmationFor } = await import("@/lib/email");
+  await sendPaymentConfirmationFor(params.clientId);
+
   return { alreadyDone: false };
 }
 

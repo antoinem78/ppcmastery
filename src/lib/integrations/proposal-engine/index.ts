@@ -73,6 +73,13 @@ export async function getProposal(idOrSlug: string): Promise<EngineProposal> {
   return (await res.json()) as EngineProposal;
 }
 
+/** The proposal's permanent public URL — safe to email to BOTH parties (an
+ *  unguessable slug either side can open forever; post-acceptance it shows the
+ *  acceptance record inline). */
+export async function internalDocumentUrl(proposalId: string): Promise<string> {
+  return (await getProposal(proposalId)).url;
+}
+
 /** Map engine status onto PandaDoc vocabulary (the portal only branches on
  *  "document.completed" vs anything else, but keep the mapping faithful). */
 export function toPandaDocStatus(engineStatus: string): string {

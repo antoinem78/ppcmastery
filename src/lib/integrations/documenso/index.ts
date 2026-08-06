@@ -124,6 +124,23 @@ export function toPandaDocStatus(status: string): string {
   }
 }
 
+/** Download the sealed (cryptographically signed) PDF. Only available once the
+ *  document is COMPLETED — the endpoint 400s before that, which callers should
+ *  treat as "not yet", not as fatal. */
+export async function downloadSealedPdf(documentId: string): Promise<Buffer> {
+  const res = await api(`/documents/${encodeURIComponent(documentId)}/download`);
+  const { downloadUrl } = (await res.json()) as { downloadUrl: string };
+  const pdf = await fetch(downloadUrl);
+  if (!pdf.ok) throw new Error(`Documenso sealed PDF fetch -> ${pdf.status}`);
+  return Buffer.from(await pdf.arrayBuffer());
+}
+
+/** The document view inside the Documenso app — for the PROVIDER's own emails
+ *  (requires a Documenso login; the client gets the sealed PDF instead). */
+export function internalDocumentUrl(documentId: string): string {
+  return `${baseUrl()}/documents/${encodeURIComponent(documentId)}`;
+}
+
 /** The signer's permanent signing link (embeds in the contract iframe). */
 export async function getSigningUrl(documentId: string, recipientEmail: string): Promise<string> {
   const doc = await getDocument(documentId);

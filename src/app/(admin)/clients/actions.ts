@@ -120,6 +120,18 @@ export async function createClient(formData: FormData): Promise<void> {
     },
   });
 
+  // Email the onboarding invite (best-effort, env-gated no-op when the email
+  // layer is unconfigured — never rolls back the client that was just created).
+  if (process.env.APP_BASE_URL) {
+    const { sendOnboardingInvite } = await import("@/lib/email");
+    await sendOnboardingInvite({
+      to: contactEmail,
+      contactName: contactName || null,
+      companyName,
+      link: `${process.env.APP_BASE_URL.replace(/\/$/, "")}/onboarding/${client.id}`,
+    });
+  }
+
   revalidatePath("/clients");
   redirect(`/clients/${client.id}`);
 }

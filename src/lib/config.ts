@@ -56,6 +56,16 @@ export const entityConfig = {
    *  entity footer line and on the logged-out landing. */
   privacyUrl: process.env.LEGAL_PRIVACY_URL ?? "",
   termsUrl: process.env.LEGAL_TERMS_URL ?? "",
+
+  /** Provider-side copy address for contract emails (issue notices, signed
+   *  counter-copies, /api/diag/email test sends). Empty = those sends are
+   *  silently skipped. */
+  contractCopyTo: process.env.CONTRACT_COPY_TO ?? "",
+
+  /** Who executes agreements on the provider side (the execution block under
+   *  the terms). Empty = the execution block is omitted, agreement unchanged. */
+  signatoryName: process.env.AGREEMENT_SIGNATORY_NAME ?? "",
+  signatoryTitle: process.env.AGREEMENT_SIGNATORY_TITLE ?? "",
 };
 
 export function formatMoney(amount: number): string {

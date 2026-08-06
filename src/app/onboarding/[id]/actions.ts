@@ -117,6 +117,20 @@ export async function generateContract(clientId: string): Promise<void> {
       actor: "client",
       payload: { pandadoc_document_id: documentId },
     });
+
+    // Tell the provider the agreement is in front of the client — so the
+    // founder can read it BEFORE it is accepted. Best-effort.
+    try {
+      const { internalDocumentUrl } = await import("@/lib/integrations/contracts");
+      const { sendContractIssuedNotice } = await import("@/lib/email");
+      await sendContractIssuedNotice({
+        companyName: client.company_name,
+        contactEmail: client.contact_email,
+        documentUrl: await internalDocumentUrl(documentId),
+      });
+    } catch (e) {
+      console.error("Contract issue notice failed (non-fatal):", e);
+    }
   }
   revalidatePath(`/onboarding/${clientId}`);
 }

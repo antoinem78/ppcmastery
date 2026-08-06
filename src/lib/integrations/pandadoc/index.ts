@@ -174,6 +174,21 @@ export async function createSigningSession(
   return `https://app.pandadoc.com/s/${id}`;
 }
 
+/** Download the document PDF (post-completion this is the executed copy with
+ *  the signature certificate). Returns the raw bytes. */
+export async function downloadDocumentPdf(documentId: string): Promise<Buffer> {
+  const res = await api(`/documents/${documentId}/download`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+/** The PandaDoc app URL for a document — for the PROVIDER's own emails only.
+ *  Never email a signing session: those are single-use, ~1h, and scoped to the
+ *  client's recipient identity. This is the document view in the PandaDoc
+ *  account, which is what the provider actually wants to open. */
+export function internalDocumentUrl(documentId: string): string {
+  return `https://app.pandadoc.com/a/#/documents/${documentId}`;
+}
+
 /**
  * Mark the client's contract signed and advance to payment. Idempotent —
  * called by both the webhook and the page's status-check fallback.
@@ -185,7 +200,7 @@ export async function markContractSigned(
   const supabase = createSupabaseAdminClient();
   const { data: state } = await supabase
     .from("onboarding_state")
-    .select("contract_status")
+    .select("contract_status, pandadoc_document_id")
     .eq("client_id", clientId)
     .single();
   // Shared PandaDoc account across two portals: this endpoint receives the other
@@ -205,5 +220,15 @@ export async function markContractSigned(
     eventType: "contract_signed",
     actor: `system:${source}`,
   });
+
+  // Signed-copy delivery lives HERE, not in any webhook: four paths race to
+  // mark a contract signed and this function transitions exactly once, so
+  // calling it here sends exactly one copy. Best-effort — deliverSignedCopy
+  // never throws. Dynamic import breaks the module cycle (contract-copy needs
+  // this module's PDF download).
+  if (state.pandadoc_document_id) {
+    const { deliverSignedCopy } = await import("@/lib/contract-copy");
+    await deliverSignedCopy(clientId, state.pandadoc_document_id);
+  }
   return { alreadyDone: false };
 }

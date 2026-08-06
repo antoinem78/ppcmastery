@@ -60,6 +60,18 @@ export async function createSigningSession(documentId: string, recipientEmail: s
   }
 }
 
+/** Provider-facing document URL for the PROVIDER's own emails (issue notices).
+ *  Engine: the permanent public proposal URL. Documenso: the document view in
+ *  the app (needs a login). PandaDoc: the app document view — NEVER a signing
+ *  session (single-use, ~1h, scoped to the client's recipient identity). */
+export async function internalDocumentUrl(documentId: string): Promise<string> {
+  switch (contractProvider()) {
+    case "proposal-engine": return engine.internalDocumentUrl(documentId);
+    case "documenso": return documenso.internalDocumentUrl(documentId);
+    default: return pandadoc.internalDocumentUrl(documentId);
+  }
+}
+
 // Provider-independent (pure Supabase): flips the client to signed + payment
 // step. Used by all providers' webhooks and the status-check fallback.
 export { markContractSigned } from "@/lib/integrations/pandadoc";
