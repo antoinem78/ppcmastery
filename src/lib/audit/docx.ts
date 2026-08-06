@@ -18,11 +18,13 @@ export const STATUS = { good: "059669", warn: "B45309", bad: "DC2626" };
 const noBorder = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" } as const;
 const thin = { style: BorderStyle.SINGLE, size: 4, color: "E5E7EB" } as const;
 
-export function coverPage(brand: string, clientName: string, dateStr: string): Paragraph[] {
+/** `title` defaults to the Google Ads audit (the original caller); the Meta
+ *  audit passes its own so one set of house helpers serves both documents. */
+export function coverPage(brand: string, clientName: string, dateStr: string, title = "Google Ads Account Audit"): Paragraph[] {
   return [
     new Paragraph({ spacing: { before: 2400 }, children: [new TextRun({ text: brand.toUpperCase(), bold: true, size: 40, color: NAVY })] }),
     new Paragraph({ spacing: { before: 80 }, border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: BLUE } }, children: [] }),
-    new Paragraph({ spacing: { before: 600 }, children: [new TextRun({ text: "Google Ads Account Audit", bold: true, size: 56, color: NAVY })] }),
+    new Paragraph({ spacing: { before: 600 }, children: [new TextRun({ text: title, bold: true, size: 56, color: NAVY })] }),
     new Paragraph({ spacing: { before: 200 }, children: [new TextRun({ text: clientName, size: 36, color: INK })] }),
     new Paragraph({ spacing: { before: 120 }, children: [new TextRun({ text: dateStr, size: 24, color: GREY })] }),
     new Paragraph({ spacing: { before: 200 }, children: [new TextRun({ text: "Private and confidential", italics: true, size: 20, color: GREY })], pageBreakBefore: false }),
@@ -84,10 +86,10 @@ export function exhibit(caption: string, columns: ExhibitColumn[], rows: string[
   ];
 }
 
-export async function buildDocx(brand: string, children: (Paragraph | Table)[]): Promise<Buffer> {
+export async function buildDocx(brand: string, children: (Paragraph | Table)[], title = "Google Ads Account Audit"): Promise<Buffer> {
   const doc = new Document({
     creator: brand,
-    title: "Google Ads Account Audit",
+    title,
     sections: [
       {
         properties: { page: { margin: { top: 1100, bottom: 1100, left: 1100, right: 1100 } } },
@@ -96,7 +98,7 @@ export async function buildDocx(brand: string, children: (Paragraph | Table)[]):
             children: [
               new Paragraph({
                 alignment: AlignmentType.CENTER,
-                children: [new TextRun({ text: `${brand}  ·  Google Ads Account Audit  ·  `, size: 16, color: GREY }), new TextRun({ children: [PageNumber.CURRENT], size: 16, color: GREY })],
+                children: [new TextRun({ text: `${brand}  ·  ${title}  ·  `, size: 16, color: GREY }), new TextRun({ children: [PageNumber.CURRENT], size: 16, color: GREY })],
               }),
             ],
           }),

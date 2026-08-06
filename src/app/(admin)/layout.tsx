@@ -28,6 +28,11 @@ const navItems = [
   { href: "/builder", label: "Campaign Builder" },
 ];
 
+// Bernard's Meta surface is hidden on the reviewer deployment: that tenant is a
+// Google Ads window for the API reviewer and must not advertise a channel it
+// does not demonstrate.
+const metaNavItem = { href: "/bernard", label: "Meta" };
+
 export default async function AdminLayout({
   children,
 }: {
@@ -63,7 +68,7 @@ export default async function AdminLayout({
           )}
         </div>
         <nav className="flex-1 space-y-1 px-3">
-          {navItems.map((item) => (
+          {(entityConfig.reviewMode ? navItems : [...navItems, metaNavItem]).map((item) => (
             <Link
               key={item.href}
               href={item.href}
