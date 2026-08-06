@@ -99,11 +99,17 @@ signing link shortly.
 Aug 6 agreement is with the client". This is new. It exists so the agency sees
 the document before the client accepts it, rather than after.
 
-**Check, in the agreement itself:** near the top, under the two parties, there
-should now be a sentence reading "Executed for and on behalf of the Provider by
-[name, title] on [date]. The Provider is bound by this Agreement from the date
-of issue; the Client's acceptance below completes it." This is new today and
-makes the document two-party rather than one-sided.
+**Check, in the agreement itself:** two things.
+
+First, the Provider is named in full at the top: "BJ PPC sp. z o.o. trading as
+PPC Mastery, ul. Tyniecka 137T, 30-376 Krakow, Poland ("Provider")". If it says
+anything shorter, or just "PPC mastery", tell us.
+
+Second, under the two parties there should be a sentence reading "Executed for
+and on behalf of the Provider by [name, title] on [date]. The Provider is bound
+by this Agreement from the date of issue; the Client's acceptance below
+completes it." This is new today and makes the document two-party rather than
+one-sided. Please read it as a client would and say if the wording sits badly.
 
 ### 4. Sign it
 
@@ -123,10 +129,16 @@ sealed PDF attached.
 
 ### 5. The payment step
 
-**Check:** how the amount is presented before you reach the card. If VAT is
-configured it should break out service, VAT and the gross due today, described
-as an estimate. If it shows a single "Due today" line, that is expected right
-now (see Known issues below), not a bug to report.
+**Check:** how the amount is presented before you reach the card. It should show
+a single "Due today (first month)" line of $1, with no VAT added. That is
+deliberate: no VAT rate is configured for this entity, so the portal quotes net
+and lets Stripe decide any real liability from the billing address at checkout.
+
+If a VAT line appears, or the amount Stripe asks you to approve is larger than
+the amount the portal quoted, that IS a defect and is the single thing most
+worth reporting. A client agreeing to one number and their bank asking them to
+approve a bigger one reads as a bait and switch, and it is exactly what happened
+on the sibling portal's first real run.
 
 Continue to Stripe checkout and pay the $1 with a real card.
 
@@ -147,16 +159,10 @@ share URL. Open it in a private window: it should load a read-only dashboard.
 Press **Disable link** and reload that URL: it should now be gone. Client share
 links are off by default and revocable as of today.
 
-## Known issues, please do not report these as defects
+## One thing that is intentional, not a defect
 
-Two things are already known and are being handled separately. Flag anything
-else, however small.
-
-1. **The agreement names the Provider as "PPC mastery"** rather than the legal
-   entity, sitting next to the Krakow registration address. A configuration
-   value is not yet set. Expected.
-2. **VAT may not be broken out** on the quote. The VAT rate is not yet
-   configured, so the breakdown stays hidden. Expected.
+**No VAT is shown or added.** No VAT rate is configured for this entity, so the
+portal quotes net throughout. Flag anything else, however small.
 
 ## Cleanup, once the walk is done
 
