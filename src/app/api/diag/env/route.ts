@@ -107,7 +107,8 @@ export async function GET() {
         ? "test"
         : "unset",
     contract_provider: process.env.CONTRACT_PROVIDER?.trim() || "pandadoc",
-    email_from_domain: emailFrom.includes("@") ? emailFrom.split("@").pop() : "",
+    // EMAIL_FROM is usually "Name <addr@domain>", so strip the closing bracket.
+    email_from_domain: emailFrom.includes("@") ? emailFrom.split("@").pop()?.replace(/[>\s]+$/, "") : "",
     // Bernard reads Meta only when one of the two accepted names is set.
     meta_readable: Boolean((process.env.META_ADS_TOKEN ?? process.env.META_ACCESS_TOKEN)?.trim()),
     // Defaults that silently apply when the entity vars are unset, so an empty
