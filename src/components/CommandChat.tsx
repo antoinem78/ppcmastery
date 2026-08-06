@@ -37,6 +37,11 @@ export function CommandChat() {
   // into (or persists under) account B after a mid-stream switch.
   const scopeRef = useRef(scope);
   useEffect(() => { scopeRef.current = scope; }, [scope]);
+  // Scope with a send in flight (null = none): the hydration GET must never
+  // clobber a conversation that is streaming right now (switching away and
+  // back mid-answer re-runs the load effect, and a slow response would land
+  // AFTER the live paints and blank the reply).
+  const streamingScopeRef = useRef<string | null>(null);
 
   const scrollDown = () => requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }));
 
@@ -56,14 +61,19 @@ export function CommandChat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // Load the stored conversation whenever the scope changes.
+  // Load the stored conversation whenever the scope changes — unless a reply
+  // is streaming into this very scope (the live thread wins; it persists
+  // itself when the stream finishes).
   useEffect(() => {
+    if (streamingScopeRef.current === scope) return;
     let cancelled = false;
     setLoadingHistory(true);
     fetch(`/api/agent/conversation?scope=${encodeURIComponent(scope)}`)
       .then((r) => (r.ok ? r.json() : { messages: [] }))
-      .then((d) => { if (!cancelled) { setMessages(d.messages ?? []); scrollDown(); } })
-      .catch(() => { if (!cancelled) setMessages([]); })
+      .then((d) => {
+        if (!cancelled && streamingScopeRef.current !== scope) { setMessages(d.messages ?? []); scrollDown(); }
+      })
+      .catch(() => { if (!cancelled && streamingScopeRef.current !== scope) setMessages([]); })
       .finally(() => { if (!cancelled) setLoadingHistory(false); });
     return () => { cancelled = true; };
   }, [scope]);
@@ -96,6 +106,7 @@ export function CommandChat() {
     setStatus(null);
     setBusy(true);
     const sendScope = scope; // freeze: replies belong to the scope they were asked in
+    streamingScopeRef.current = sendScope;
     const history: Msg[] = [...messages, { role: "user", content: q }];
     setMessages([...history, { role: "assistant", content: "" }]);
     scrollDown();
@@ -139,6 +150,7 @@ export function CommandChat() {
     } finally {
       setStatus(null);
       setBusy(false);
+      streamingScopeRef.current = null;
       const final: Msg[] = [...history, { role: "assistant", content: assistant }];
       if (scopeRef.current === sendScope) {
         setMessages(final);

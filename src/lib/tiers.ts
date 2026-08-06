@@ -10,10 +10,18 @@
 /** Marker stored in clients.service_tier — all MaaS clients are 'custom'. */
 export const CUSTOM_TIER_KEY = "custom";
 
-/** Single client-facing plan name (quote + contract). No long dashes in
+/** Client-facing plan name fallback (no platforms recorded). No long dashes in
  *  client-facing copy (house rule) — this appears on contracts, Stripe
- *  checkout, and the client home. */
-export const CUSTOM_PLAN_NAME = "Paid Search Managed Service";
+ *  checkout, and the client home. Prefer planNameFor so a Meta-only client is
+ *  never handed a "Paid Search" agreement (caught on the WMI side 2026-08-05,
+ *  minutes before their first real client opened the contract). */
+export const CUSTOM_PLAN_NAME = "Managed Advertising Service";
+
+/** Channel-aware plan name derived from the platforms picked at creation,
+ *  e.g. "Managed Google Ads Service", "Managed Meta Ads Service". */
+export function planNameFor(platforms: string[] | null | undefined): string {
+  return platforms?.length ? `Managed ${channelsLabel(platforms)} Service` : CUSTOM_PLAN_NAME;
+}
 
 /** Platforms an admin can select at client creation. */
 export const PLATFORM_OPTIONS = ["Google Ads", "Microsoft Ads", "Meta Ads"] as const;

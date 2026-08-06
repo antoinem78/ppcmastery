@@ -8,9 +8,13 @@ import { listApprovedAccounts, getCommandCenter, type Roster } from "@/lib/comma
 import { getDashboard, getWeeklyOptimisations } from "@/lib/integrations/google-ads/reporting";
 import { gaqlSearch } from "@/lib/integrations/google-ads";
 import { createProposal } from "@/lib/proposals";
+import { makeEmDashScrubber } from "@/lib/emdash";
 
 const MODEL = "claude-opus-4-8";
 const MAX_TURNS = 6;
+// Text streamed during a tool turn longer than this is an answer, not
+// throat-clearing preamble, and must survive the turn (see reset logic below).
+const PREAMBLE_MAX_CHARS = 400;
 
 export type AgentEvent =
   | { type: "status"; text: string }
@@ -248,8 +252,15 @@ export async function runAgentChatStream(
   const messages: Anthropic.MessageParam[] = history.map((m) => ({ role: m.role, content: m.content }));
 
   try {
+    // Reset drops the PREVIOUS turn's streamed text so "let me check…" preamble
+    // doesn't stack above the real answer. But it must never fire when that text
+    // WAS the answer (the agent wrote a full reply and then called a tool):
+    // on the WMI side an unconditional reset deleted whole replies five times
+    // in one session, leaving only the closing line. Reset only under a
+    // preamble-sized threshold.
+    let previousTurnWasPreamble = false;
     for (let turn = 0; turn < MAX_TURNS; turn++) {
-      if (turn > 0) emit({ type: "reset" }); // drop the previous turn's tool preamble
+      if (turn > 0 && previousTurnWasPreamble) emit({ type: "reset" });
 
       const stream = client.messages.stream({
         model: MODEL,
@@ -259,7 +270,16 @@ export async function runAgentChatStream(
         tools: TOOLS,
         messages,
       });
-      stream.on("text", (t) => emit({ type: "delta", text: t }));
+      // No-em-dash house rule enforced deterministically on the stream: a
+      // prompt instruction does not survive long analytical replies. Stateful
+      // per turn so a dash split across chunks still collapses.
+      const scrub = makeEmDashScrubber();
+      let turnText = "";
+      stream.on("text", (t) => {
+        turnText += t;
+        const clean = scrub(t);
+        if (clean) emit({ type: "delta", text: clean });
+      });
       const msg = await stream.finalMessage();
       messages.push({ role: "assistant", content: msg.content });
 
@@ -267,6 +287,7 @@ export async function runAgentChatStream(
         emit({ type: "done" });
         return;
       }
+      previousTurnWasPreamble = turnText.trim().length <= PREAMBLE_MAX_CHARS;
 
       const toolUses = msg.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
       const results: Anthropic.ToolResultBlockParam[] = [];

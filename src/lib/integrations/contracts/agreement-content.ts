@@ -1,6 +1,7 @@
-// The "Managed Paid Search Services Agreement" content — clauses 1-11 mirroring
-// the live PandaDoc template (docs/pandadoc-contract-template.md), built from
-// client + quote + entity env config. Shared by BOTH non-PandaDoc providers so
+// The managed-services agreement content — clauses 1-11 mirroring the live
+// PandaDoc template (docs/pandadoc-contract-template.md), built from
+// client + quote + entity env config. The title derives from the client's
+// channels so a Meta-only client never signs a "Paid Search" agreement. Shared by BOTH non-PandaDoc providers so
 // the engine (HTML) and Documenso (PDF) render the exact same contract text.
 // ⚠️ Wording pending legal review (same caveat as the PandaDoc template).
 import { entityConfig, formatMoney } from "@/lib/config";
@@ -64,7 +65,7 @@ export function buildAgreementContent(client: ContractClient, quote: ContractQuo
     : "";
   return {
     providerName: provider,
-    title: "Managed Paid Search Services Agreement",
+    title: `Managed ${quote.channels || "Paid Search"} Services Agreement`,
     number: `AGR-${today.slice(0, 4)}-${client.id.slice(0, 8)}`,
     date: today,
     intro: `This Services Agreement ("Agreement") is entered into on ${today} between:\n\n${provider}, ${registrationInfo()} ("Provider"), and\n\n${client.company_name}, represented by ${client.contact_name ?? client.contact_email} (${client.contact_email}) ("Client").${execution}`,

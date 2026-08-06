@@ -6,12 +6,13 @@
 import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import {
-  CUSTOM_PLAN_NAME,
+  planNameFor,
   planBlurb,
   planFeatures,
 } from "@/lib/tiers";
 import { entityConfig, formatMoney } from "@/lib/config";
 import { Wordmark } from "@/components/Wordmark";
+import { StepAutoAdvance } from "@/components/StepAutoAdvance";
 import {
   confirmDetails,
   generateContract,
@@ -194,7 +195,7 @@ export default async function OnboardingPage({
   }
 
   const price = client.custom_monthly_price ?? 0;
-  const planName = CUSTOM_PLAN_NAME;
+  const planName = planNameFor(client.platforms);
   const displayStep =
     step === "contract" && !state?.details_confirmed ? "details" : step;
 
@@ -756,6 +757,7 @@ function ContractStep({
   if (signingUrl) {
     return (
       <>
+        <StepAutoAdvance clientId={id} shownStep="contract" />
         <h1 className="text-xl font-semibold text-zinc-900">
           Review &amp; sign your agreement
         </h1>

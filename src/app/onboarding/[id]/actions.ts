@@ -94,14 +94,14 @@ export async function generateContract(clientId: string): Promise<void> {
 
     // Every quote is bespoke: the client-facing plan name + their negotiated
     // monthly price.
-    const { CUSTOM_PLAN_NAME, channelsLabel } = await import("@/lib/tiers");
+    const { planNameFor, channelsLabel } = await import("@/lib/tiers");
     const price = client.custom_monthly_price;
     if (!price) {
       throw new Error("Client has no monthly price configured.");
     }
 
     const documentId = await createContractDocument(client, {
-      name: CUSTOM_PLAN_NAME,
+      name: planNameFor(client.platforms),
       price,
       channels: channelsLabel(client.platforms),
     });
@@ -167,7 +167,7 @@ export async function startCheckout(clientId: string): Promise<void> {
   const supabase = createSupabaseAdminClient();
   const { data: client } = await supabase
     .from("clients")
-    .select("id, contact_email, service_tier, custom_monthly_price")
+    .select("id, contact_email, service_tier, custom_monthly_price, platforms")
     .eq("id", clientId)
     .single();
   if (!client) throw new Error("Client not found.");

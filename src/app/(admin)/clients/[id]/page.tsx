@@ -3,7 +3,7 @@
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { CUSTOM_PLAN_NAME } from "@/lib/tiers";
+import { planNameFor } from "@/lib/tiers";
 import { ACCESS_TASKS, isAccessTaskKey } from "@/lib/access-tasks";
 import { formatMoney } from "@/lib/config";
 import { CopyButton } from "@/components/CopyButton";
@@ -166,7 +166,7 @@ export default async function ClientDetailPage({
           <dl className="mt-4 space-y-2 text-sm">
             <Row label="Contact" value={client.contact_name || "—"} />
             <Row label="Email" value={client.contact_email} />
-            <Row label="Plan" value={price !== null ? CUSTOM_PLAN_NAME : "—"} />
+            <Row label="Plan" value={price !== null ? planNameFor(client.platforms) : "—"} />
             <Row
               label="Platforms"
               value={(client.platforms as string[] | null)?.join(", ") || "—"}
