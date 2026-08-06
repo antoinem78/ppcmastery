@@ -123,11 +123,19 @@ export async function GET() {
 
   // Name forensics: env vars that LOOK like one of ours but aren't (typos,
   // stale names from another deployment's paste). Names only, never values.
+  // A boolean cannot tell "never added" from "added with an empty value", and
+  // the second is a real trap: a variable can sit in the dashboard, correctly
+  // named, and arrive empty at runtime. Name it explicitly.
+  const empty_names = Object.values(GROUPS)
+    .flat()
+    .filter((n) => process.env[n] !== undefined && !process.env[n]?.trim())
+    .sort();
+
   const known = new Set(Object.values(GROUPS).flat());
   const markers = /^(GOOGLE_ADS_|PANDADOC_|DOCUMENSO_|PROPOSAL_ENGINE_|STRIPE_|SLACK_|AUTH0_|SUPABASE_|RESEND_|EMAIL_|CONTRACT_|AGREEMENT_|ENTITY_|PORTAL_|LEGAL_|BRAND_)/;
   const observed_names = Object.keys(process.env)
     .filter((n) => markers.test(n) && !known.has(n))
     .sort();
 
-  return NextResponse.json({ groups, derived, observed_names });
+  return NextResponse.json({ groups, derived, empty_names, observed_names });
 }
