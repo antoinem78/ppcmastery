@@ -49,12 +49,25 @@ export interface AgreementContent {
 export function buildAgreementContent(client: ContractClient, quote: ContractQuote): AgreementContent {
   const provider = entityConfig.legalName || entityConfig.brandName;
   const today = new Date().toISOString().slice(0, 10);
+  // Provider execution block: click-wrap is binding without a countersignature,
+  // but a one-signature document reads lopsided and leaves the founder with no
+  // counter-signed record. When AGREEMENT_SIGNATORY_NAME is set, the document
+  // carries both parties from the moment the client first sees it. Unset =
+  // agreement renders exactly as before.
+  const signatory = entityConfig.signatoryName
+    ? entityConfig.signatoryTitle
+      ? `${entityConfig.signatoryName}, ${entityConfig.signatoryTitle}`
+      : entityConfig.signatoryName
+    : "";
+  const execution = signatory
+    ? `\n\nExecuted for and on behalf of the Provider by ${signatory} on ${today}. The Provider is bound by this Agreement from the date of issue; the Client's acceptance below completes it.`
+    : "";
   return {
     providerName: provider,
     title: "Managed Paid Search Services Agreement",
     number: `AGR-${today.slice(0, 4)}-${client.id.slice(0, 8)}`,
     date: today,
-    intro: `This Services Agreement ("Agreement") is entered into on ${today} between:\n\n${provider}, ${registrationInfo()} ("Provider"), and\n\n${client.company_name}, represented by ${client.contact_name ?? client.contact_email} (${client.contact_email}) ("Client").`,
+    intro: `This Services Agreement ("Agreement") is entered into on ${today} between:\n\n${provider}, ${registrationInfo()} ("Provider"), and\n\n${client.company_name}, represented by ${client.contact_name ?? client.contact_email} (${client.contact_email}) ("Client").${execution}`,
     pricing: [
       {
         label: quote.name,
