@@ -18,6 +18,7 @@ import {
   resumeClientSubscription,
   markPaidManually,
   saveReportPrompt,
+  toggleShareDashboard,
 } from "../actions";
 import {
   resolveDashboard,
@@ -79,7 +80,10 @@ export default async function ClientDetailPage({
   const host = h.get("host") ?? "localhost:3000";
   const proto = host.startsWith("localhost") ? "http" : "https";
   const onboardingUrl = `${proto}://${host}/onboarding/${id}`;
-  const shareUrl = `${proto}://${host}/share/${id}`; // public dashboard-only link
+  // Public dashboard-only link: the dedicated share TOKEN (migration 0021),
+  // never the client id — the token is revocable via share_enabled.
+  const shareEnabled = Boolean(client.share_enabled);
+  const shareUrl = client.share_token ? `${proto}://${host}/share/${client.share_token}` : null;
 
   const price = client.custom_monthly_price ?? null;
   const questionnaire =
@@ -409,8 +413,24 @@ export default async function ClientDetailPage({
           </div>
           <div className="mb-3 flex items-center gap-2">
             <span className="shrink-0 text-xs text-zinc-500">Client dashboard link:</span>
-            <code className="min-w-0 flex-1 truncate rounded-md bg-zinc-100 px-3 py-1.5 text-xs text-zinc-700">{shareUrl}</code>
-            <CopyButton value={shareUrl} />
+            {shareEnabled && shareUrl ? (
+              <>
+                <code className="min-w-0 flex-1 truncate rounded-md bg-zinc-100 px-3 py-1.5 text-xs text-zinc-700">{shareUrl}</code>
+                <CopyButton value={shareUrl} />
+              </>
+            ) : (
+              <span className="min-w-0 flex-1 truncate text-xs text-zinc-400">
+                off — enable to generate a live link
+              </span>
+            )}
+            <form action={toggleShareDashboard.bind(null, id)}>
+              <button
+                type="submit"
+                className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+              >
+                {shareEnabled ? "Disable link" : "Enable link"}
+              </button>
+            </form>
           </div>
           <AdsDashboard payload={dashboard} basePath={`/clients/${id}`} range={rangeKey} />
         </div>

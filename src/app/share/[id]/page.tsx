@@ -1,6 +1,8 @@
 // Public, dashboard-only client link. Outside the (admin) group, so no sidebar
-// and no admin gate — access is via the client id in the URL (the same
-// share-by-link model as /onboarding/[id]). Read-only: brand header + the
+// and no admin gate — access is via the client's share TOKEN in the URL
+// (clients.share_token, migration 0021): a dedicated unguessable id, separate
+// from the client id that also names the onboarding link, and revocable by
+// flipping clients.share_enabled off. Read-only: brand header + the
 // performance dashboard, nothing else. Send this to a client who only needs the
 // numbers.
 import { notFound } from "next/navigation";
@@ -20,12 +22,23 @@ export default async function SharedDashboardPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ range?: string; start?: string; end?: string }>;
 }) {
-  const { id } = await params;
+  const { id: token } = await params;
   const sp = await searchParams;
   const supabase = createSupabaseAdminClient();
 
-  const { data: client } = await supabase.from("clients").select("company_name").eq("id", id).single();
-  if (!client) notFound();
+  // Non-UUID params would make the uuid-column query error, not just miss.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) notFound();
+
+  const { data: client } = await supabase
+    .from("clients")
+    .select("id, company_name, share_enabled")
+    .eq("share_token", token)
+    .single();
+  // Sharing is opt-in and revocable: no token match or toggled off = 404 (the
+  // link goes dead without touching the client record).
+  if (!client || !client.share_enabled) notFound();
+  const id = client.id as string;
+
   const { data: state } = await supabase
     .from("onboarding_state")
     .select("google_ads_customer_id, google_ads_reporting_customer_id, ad_link_status")
@@ -59,7 +72,7 @@ export default async function SharedDashboardPage({
       <main className="mx-auto max-w-5xl px-6 py-8">
         <h1 className="mb-4 text-xl font-semibold text-zinc-900">Google Ads Performance</h1>
         {dash ? (
-          <AdsDashboard payload={dash} basePath={`/share/${id}`} range={rangeKey} />
+          <AdsDashboard payload={dash} basePath={`/share/${token}`} range={rangeKey} />
         ) : (
           <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">
             Performance data isn&rsquo;t available yet. Please check back once the account is connected.

@@ -362,6 +362,32 @@ export async function resumeClientSubscription(clientId: string): Promise<void> 
   revalidatePath(`/clients/${clientId}`);
 }
 
+// Enable/disable the client's public dashboard share link (clients.share_token,
+// migration 0021). Disabling kills the link instantly without touching the
+// client — that revocability is the whole point of the token. Admin-only.
+export async function toggleShareDashboard(clientId: string): Promise<void> {
+  const { email: adminEmail } = await requireAgencyAdmin();
+  const supabase = createSupabaseAdminClient();
+  const { data: client } = await supabase
+    .from("clients")
+    .select("share_enabled")
+    .eq("id", clientId)
+    .single();
+  if (!client) throw new Error("Client not found.");
+  const next = !client.share_enabled;
+  const { error } = await supabase
+    .from("clients")
+    .update({ share_enabled: next })
+    .eq("id", clientId);
+  if (error) throw new Error(error.message);
+  await logActivity({
+    clientId,
+    eventType: next ? "share_link_enabled" : "share_link_disabled",
+    actor: `admin:${adminEmail}`,
+  });
+  revalidatePath(`/clients/${clientId}`);
+}
+
 // Permanently delete a client and everything keyed to it (onboarding_state,
 // activity_log, ads_report_cache, weekly_reports all cascade on delete). Admin
 // only. Does NOT cancel any Stripe subscription — that's a separate action.
