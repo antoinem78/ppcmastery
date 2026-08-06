@@ -2,13 +2,17 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 
-// Floating AI-analyst chat, mounted in the admin layout so it stays open across
-// pages (the layout persists across navigations). Conversations are stored
-// server-side per scope (an account, or "general"), so switching pages keeps the
-// thread and reopening an account recalls the prior conversation. It analyses and
-// files proposals; it never executes.
+// Floating chat with Oscar, the Google Ads analyst, mounted in the admin layout
+// so it stays open across pages (the layout persists across navigations).
+// Conversations are stored server-side per scope (an account, or "general"), so
+// switching pages keeps the thread and reopening an account recalls the prior
+// conversation. Oscar reads any account under the MCC, files proposals, and can
+// apply or build on the founder's explicit word, behind the same machine gates
+// as the Proposals page.
 interface Msg { role: "user" | "assistant"; content: string }
 interface Account { clientId: string; company: string }
+/** A downloadable deliverable the agent produced this turn (e.g. an audit). */
+interface Artifact { href: string; label: string }
 
 const SUGGESTIONS = [
   "Which accounts need attention this week?",
@@ -30,6 +34,9 @@ export function CommandChat() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  // Artifacts are per-answer, not persisted with the transcript (the document is
+  // regenerated from live data on open, so a stale link in history would mislead).
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -94,6 +101,7 @@ export function CommandChat() {
     if (!window.confirm(`Clear this ${scope === "general" ? "conversation" : "account's conversation"}?`)) return;
     setMessages([]);
     setStatus(null);
+    setArtifacts([]);
     try {
       await fetch(`/api/agent/conversation?scope=${encodeURIComponent(scope)}`, { method: "DELETE" });
     } catch { /* best-effort */ }
@@ -104,6 +112,7 @@ export function CommandChat() {
     if (!q || busy) return;
     setInput("");
     setStatus(null);
+    setArtifacts([]);
     setBusy(true);
     const sendScope = scope; // freeze: replies belong to the scope they were asked in
     streamingScopeRef.current = sendScope;
@@ -137,8 +146,13 @@ export function CommandChat() {
         buf = lines.pop() ?? "";
         for (const line of lines) {
           if (!line.trim()) continue;
-          const e = JSON.parse(line) as { type: string; text?: string };
+          const e = JSON.parse(line) as { type: string; text?: string; label?: string };
           if (e.type === "status") setStatus(e.text ?? null);
+          else if (e.type === "artifact" && e.text) {
+            const href = e.text;
+            const label = e.label ?? "Download";
+            setArtifacts((prev) => (prev.some((a) => a.href === href) ? prev : [...prev, { href, label }]));
+          }
           else if (e.type === "reset") { assistant = ""; setStatus(null); paint(); }
           else if (e.type === "delta") { assistant += e.text ?? ""; setStatus(null); paint(); scrollDown(); }
           else if (e.type === "error") { assistant = assistant || `Sorry, ${e.text}`; paint(); }
@@ -202,7 +216,7 @@ export function CommandChat() {
           <div className="space-y-3">
             <p className="text-sm text-zinc-500">
               {scope === "general"
-                ? "Ask about the accounts. I read live figures and can file optimisation proposals for your approval. I never make changes myself."
+                ? "Ask Oscar about any account under the MCC. He reads live figures, files optimisation proposals, and on your explicit word can apply them or build a campaign, behind the same guardrails as the Proposals page."
                 : `Chatting about ${scopeLabel}. Ask anything, I'll pick up where we left off.`}
             </p>
             {scope === "general" && (
@@ -222,6 +236,17 @@ export function CommandChat() {
             </div>
           ))
         )}
+        {artifacts.map((a) => (
+          <a
+            key={a.href}
+            href={a.href}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:border-blue-400 hover:bg-zinc-50"
+          >
+            ⬇ {a.label}
+          </a>
+        ))}
         {status && <div className="flex items-center gap-2 text-xs text-zinc-400"><span className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-200 border-t-blue-500" />{status}</div>}
       </div>
 

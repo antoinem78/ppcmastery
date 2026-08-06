@@ -9,7 +9,7 @@ export interface WriteAuditEntry {
   deployment?: string;
   mcc?: string;
   customerId?: string;
-  source: "p5lite" | "publish";
+  source: "p5lite" | "publish" | "google_build";
   action?: string;
   phase?: "dry_run" | "apply" | "rollback" | "publish";
   mccCheck?: "passed" | "violation";

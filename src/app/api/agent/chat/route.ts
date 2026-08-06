@@ -1,5 +1,11 @@
-// POST /api/agent/chat — streams the read-only Command Center analyst as NDJSON
-// (one JSON event per line: status | delta | reset | done | error). Admin-gated.
+// POST /api/agent/chat — streams Oscar, the Google Ads analyst, as NDJSON (one
+// JSON event per line: status | delta | reset | artifact | done | error).
+// Admin-gated.
+//
+// The signed-in admin's email is passed as the ACTOR: Oscar can approve, apply
+// and build on the founder's explicit word, and every one of those lands in
+// write_audit / the proposal record. The approver recorded there must be the
+// human who gave the word, never the agent that relayed it.
 import { auth0 } from "@/lib/auth/auth0";
 import { isAgencyAdmin } from "@/lib/auth/roles";
 import { runAgentChatStream, type AgentEvent, type ChatMessage } from "@/lib/integrations/anthropic/agent";
@@ -9,9 +15,11 @@ export const maxDuration = 300;
 export async function POST(req: Request) {
   const session = await auth0.getSession();
   if (!session) return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401 });
-  if (!isAgencyAdmin(session.user as Record<string, unknown>)) {
+  const user = session.user as Record<string, unknown>;
+  if (!isAgencyAdmin(user)) {
     return new Response(JSON.stringify({ error: "Agency admin role required." }), { status: 403 });
   }
+  const actor = `admin:${typeof user.email === "string" ? user.email : "unknown"}`;
 
   let messages: ChatMessage[] = [];
   let focusClientId: string | null = null;
@@ -29,7 +37,7 @@ export async function POST(req: Request) {
     async start(controller) {
       const emit = (e: AgentEvent) => controller.enqueue(encoder.encode(JSON.stringify(e) + "\n"));
       try {
-        await runAgentChatStream(messages, emit, focusClientId);
+        await runAgentChatStream(messages, emit, focusClientId, actor);
       } catch (e) {
         emit({ type: "error", text: e instanceof Error ? e.message : "Stream failed." });
       } finally {
