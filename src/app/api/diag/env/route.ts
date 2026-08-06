@@ -72,6 +72,7 @@ const GROUPS: Record<string, string[]> = {
     "AGREEMENT_SIGNATORY_TITLE",
   ],
   email: ["RESEND_API_KEY", "EMAIL_FROM", "CONTRACT_COPY_TO"],
+  meta: ["META_ADS_TOKEN", "META_ACCESS_TOKEN"],
   supabase: ["SUPABASE_URL", "SUPABASE_SECRET_KEY"],
   auth0: ["AUTH0_DOMAIN", "AUTH0_CLIENT_ID", "AUTH0_CLIENT_SECRET", "AUTH0_SECRET", "APP_BASE_URL"],
   anthropic: ["ANTHROPIC_API_KEY"],
@@ -107,6 +108,15 @@ export async function GET() {
         : "unset",
     contract_provider: process.env.CONTRACT_PROVIDER?.trim() || "pandadoc",
     email_from_domain: emailFrom.includes("@") ? emailFrom.split("@").pop() : "",
+    // Bernard reads Meta only when one of the two accepted names is set.
+    meta_readable: Boolean((process.env.META_ADS_TOKEN ?? process.env.META_ACCESS_TOKEN)?.trim()),
+    // Defaults that silently apply when the entity vars are unset, so an empty
+    // ENTITY_LEGAL_NAME on a live contract deployment is visible here rather
+    // than only on a signed agreement.
+    brand_name_effective: process.env.BRAND_NAME?.trim() || "PPC mastery (default)",
+    legal_name_set: Boolean(process.env.ENTITY_LEGAL_NAME?.trim()),
+    currency_effective: process.env.CURRENCY?.trim() || "USD (default)",
+    vat_breakdown_shown: Boolean(process.env.VAT_RATE?.trim()),
     reporting_only: process.env.PORTAL_REPORTING_ONLY === "true",
     review_mode: process.env.PORTAL_REVIEW_MODE === "true",
   };
