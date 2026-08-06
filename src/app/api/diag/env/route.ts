@@ -99,6 +99,21 @@ export async function GET() {
   // Non-secret derived facts that catch whole classes of misconfiguration.
   const stripeKey = process.env.STRIPE_SECRET_KEY ?? "";
   const emailFrom = process.env.EMAIL_FROM ?? "";
+
+  // A CONTRACT_PROVIDER whose credentials are absent is a HARD failure, not a
+  // fallback: the adapter throws before any network call, so the client sees a
+  // server error on "generate my agreement". Found live on AdEnergy 2026-08-06,
+  // where the switch said documenso and none of its three vars existed. Check
+  // the selected provider against what it actually needs.
+  const provider = process.env.CONTRACT_PROVIDER?.trim() || "pandadoc";
+  const PROVIDER_REQUIRES: Record<string, string[]> = {
+    pandadoc: ["PANDADOC_API_KEY", "PANDADOC_TEMPLATE_ID"],
+    "proposal-engine": ["PROPOSAL_ENGINE_URL", "PROPOSAL_ENGINE_API_TOKEN"],
+    documenso: ["DOCUMENSO_URL", "DOCUMENSO_API_TOKEN"],
+  };
+  const providerMissing = (PROVIDER_REQUIRES[provider] ?? []).filter(
+    (n) => !process.env[n]?.trim(),
+  );
   const derived = {
     // Which build is actually serving. Vercel binds env at BUILD time, so
     // "variable missing" and "build predates the variable" look identical in a
@@ -112,7 +127,10 @@ export async function GET() {
       : stripeKey.startsWith("sk_test_")
         ? "test"
         : "unset",
-    contract_provider: process.env.CONTRACT_PROVIDER?.trim() || "pandadoc",
+    contract_provider: provider,
+    // false = the contract step throws for every client until these are set.
+    contract_provider_ready: providerMissing.length === 0,
+    contract_provider_missing: providerMissing,
     // EMAIL_FROM is usually "Name <addr@domain>", so strip the closing bracket.
     email_from_domain: emailFrom.includes("@") ? emailFrom.split("@").pop()?.replace(/[>\s]+$/, "") : "",
     // Bernard reads Meta only when one of the two accepted names is set.
