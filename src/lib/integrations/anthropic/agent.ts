@@ -34,6 +34,7 @@ import {
   type MemoryKind,
 } from "@/lib/agent-memory";
 import { makeEmDashScrubber } from "@/lib/emdash";
+import { markConversationCache, systemBlocks } from "./cache";
 
 const AGENT = "oscar";
 const MODEL = "claude-opus-4-8";
@@ -352,13 +353,12 @@ RULES:
 - Change history only covers the last 30 days (a Google limit); do not ask for more.
 - British English. Never use em dashes or en dashes outside numeric ranges. Be concise and specific; lead with the answer.`;
 
-function buildSystem(memoryBlock: string): string {
-  if (entityConfig.reviewMode) return SYSTEM_REVIEW;
-  return `${SYSTEM_BASE}
-
-=== MEMORY (yours, written by you, persists across all sessions) ===
-${memoryBlock}
-=== END MEMORY ===`;
+/** Cache-separated system blocks (see cache.ts). The focus note varies per
+ *  request, so it rides after the breakpoints rather than inside the brief. */
+function buildSystem(memoryBlock: string, focus = ""): Anthropic.TextBlockParam[] {
+  // Review mode has no memory, so the brief is the only cacheable block.
+  if (entityConfig.reviewMode) return systemBlocks(SYSTEM_REVIEW, null, focus);
+  return systemBlocks(SYSTEM_BASE, memoryBlock, focus);
 }
 
 function statusFor(name: string, input: Record<string, unknown>): string {
@@ -660,14 +660,16 @@ export async function runAgentChatStream(
   // in scope, and it is scoped to Oscar so another agent's notes never leak in.
   // Review mode has no memory at all, so skip the read entirely.
   const memoryBlock = reviewMode ? "" : renderMemories(await loadMemories(AGENT), AGENT);
-  const system = buildSystem(memoryBlock) + focusNote(ctx.roster, focusClientId);
+  const system = buildSystem(memoryBlock, focusNote(ctx.roster, focusClientId));
   const messages: Anthropic.MessageParam[] = history.map((m) => ({ role: m.role, content: m.content }));
 
   try {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
+      markConversationCache(messages);
       const stream = client.messages.stream({
         model: MODEL,
-        max_tokens: 2000,
+        // 2000 truncated long analyses mid-sentence (caught on the WMI side).
+        max_tokens: 8000,
         thinking: { type: "adaptive" },
         system,
         tools,

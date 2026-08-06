@@ -28,6 +28,7 @@ import type { AgentEvent, ChatMessage } from "@/lib/integrations/anthropic/agent
 import type { Attachment } from "@/lib/attachments";
 import { entityConfig } from "@/lib/config";
 import { makeEmDashScrubber } from "@/lib/emdash";
+import { markConversationCache, systemBlocks } from "./cache";
 import {
   loadMemories,
   renderMemories,
@@ -182,12 +183,10 @@ HOW YOU SPEAK:
 - Do not narrate tool use; call the tool, then answer.
 - Never claim an action succeeded unless the tool result says so. If a read fails, report the failure plainly.`;
 
-function buildSystem(memoryBlock: string): string {
-  return `${SYSTEM_BASE}
-
-=== MEMORY (yours, written by you, persists across all sessions) ===
-${memoryBlock}
-=== END MEMORY ===`;
+/** Cache-separated system blocks (see cache.ts): the constant brief and the
+ *  memory block, which changes only when Bernard writes a memory. */
+function buildSystem(memoryBlock: string): Anthropic.Beta.BetaTextBlockParam[] {
+  return systemBlocks(SYSTEM_BASE, memoryBlock) as Anthropic.Beta.BetaTextBlockParam[];
 }
 
 type BetaBlock = Anthropic.Beta.BetaContentBlock;
@@ -354,6 +353,7 @@ export async function runBernardChatStream(
 
   try {
     for (let i = 0; i < 8; i++) {
+      markConversationCache(messages);
       const stream = client.beta.messages.stream({
         model: MODEL,
         max_tokens: 32000,

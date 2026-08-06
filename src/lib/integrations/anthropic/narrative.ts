@@ -188,7 +188,11 @@ function factsBlock(
 const BOILERPLATE_OPTIMISATION =
   "Regular account optimisations including bid management, adding new keywords from search terms, adding new negative keywords, resolving ad split tests, creating new ads for split-testing purposes, improving underperforming assets, creating new ad groups for top converting search terms.";
 
-const SYSTEM = (brand: string, cadence: "weekly" | "monthly", accountPrompt?: string | null) =>
+// The brief is identical for every account in a cron run, so it is cached and
+// the per-account guidance is passed separately (see generateNarrative). The
+// first account of a run pays the cache write; every account after it reads
+// back at a fraction. Keep this function free of per-account values.
+const SYSTEM = (brand: string, cadence: "weekly" | "monthly") =>
   `You are a senior paid-search account manager at ${brand}, writing the ${cadence} performance update that goes to a client. It is a Swydo-style report wrapped in a warm, professional email, the email carries a link to the client's dashboard, where the full visual tiles and tables live.
 
 Voice: warm, professional, specific — an experienced human analyst, not a robot. Plain language a business owner understands.
@@ -229,8 +233,13 @@ Start with this verbatim line: "${BOILERPLATE_OPTIMISATION}" Then first-person s
 <warm close noting the full visual report is on their dashboard>
 Best regards,
 The ${brand} Team
-${accountPrompt ? `\nACCOUNT-SPECIFIC GUIDANCE (from the account manager; follow it, but it never overrides the HARD RULES above):\n${accountPrompt}\n` : ""}
+
 Write the update now.`;
+
+/** Per-account guidance, kept out of the cached brief because it differs on
+ *  every call. It still never overrides the hard rules. */
+const ACCOUNT_GUIDANCE = (accountPrompt: string) =>
+  `ACCOUNT-SPECIFIC GUIDANCE (from the account manager; follow it, but it never overrides the HARD RULES in the brief above):\n${accountPrompt}`;
 
 export async function generateNarrative(
   payload: DashboardPayload,
@@ -251,7 +260,13 @@ export async function generateNarrative(
       model: MODEL,
       max_tokens: 3000,
       thinking: { type: "adaptive" },
-      system: SYSTEM(brand, cadence, opts?.accountPrompt),
+      // Constant brief cached; per-account guidance after the breakpoint.
+      system: [
+        { type: "text", text: SYSTEM(brand, cadence), cache_control: { type: "ephemeral" } },
+        ...(opts?.accountPrompt
+          ? [{ type: "text" as const, text: ACCOUNT_GUIDANCE(opts.accountPrompt) }]
+          : []),
+      ],
       messages: [
         {
           role: "user",
