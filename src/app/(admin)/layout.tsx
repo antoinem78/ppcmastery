@@ -100,7 +100,7 @@ export default async function AdminLayout({
         </div>
       </aside>
       <main className="flex-1 bg-zinc-50">{children}</main>
-      <CommandChat />
+      <CommandChat reviewMode={entityConfig.reviewMode} />
     </div>
   );
 }

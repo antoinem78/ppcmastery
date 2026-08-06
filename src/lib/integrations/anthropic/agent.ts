@@ -74,7 +74,13 @@ interface RosterEntry {
 
 /** MCC-wide READ roster: imported clients plus every leaf under the MCC.
  *  Non-imported accounts carry clientId null — reads work off the customer id,
- *  but proposals and audits need a client record. */
+ *  but proposals and audits need a client record.
+ *
+ *  ⚠️ REVIEW MODE STOPS AT THE IMPORTED CLIENTS. The reviewer deployment has its
+ *  own empty database but shares the real MCC, so enumerating leaves here would
+ *  read out live client account NAMES to an outside reviewer. That is the one
+ *  data leak a fresh database cannot prevent, and it is why the MCC import
+ *  surface is hidden there; the chat must hold the same line. */
 async function loadRoster(): Promise<RosterEntry[]> {
   const roster: RosterEntry[] = (await listApprovedAccounts()).map((r) => ({
     clientId: r.clientId,
@@ -82,6 +88,7 @@ async function loadRoster(): Promise<RosterEntry[]> {
     company: r.company,
     imported: true,
   }));
+  if (entityConfig.reviewMode) return roster;
   const seen = new Set(roster.map((r) => r.reportingId.replace(/\D/g, "")));
   try {
     for (const leaf of await listManagedAccounts()) {
@@ -292,7 +299,16 @@ const MEMORY_TOOLS: Anthropic.Tool[] = [
   },
 ];
 
-const ALL_TOOLS: Anthropic.Tool[] = [...READ_TOOLS, ...EXEC_TOOLS, ...BUILD_TOOL, ...MEMORY_TOOLS];
+// The reviewer deployment keeps the analyst it was validated as: reads and
+// proposals only. No named persona, no memory, no chat-native execution or
+// build. Simpler to assess, and it keeps the demonstrated surface identical to
+// what the Google reviewer already walked (approval and rollback stay on the
+// Proposals page, where they were validated).
+function toolsFor(reviewMode: boolean): Anthropic.Tool[] {
+  return reviewMode
+    ? READ_TOOLS
+    : [...READ_TOOLS, ...EXEC_TOOLS, ...BUILD_TOOL, ...MEMORY_TOOLS];
+}
 
 const SYSTEM_BASE = `You are Oscar, the ${entityConfig.brandName || "agency"} senior paid search strategist. You own Google Ads and Shopping across every account the agency manages: you read accounts against ground truth, you form a view, and you defend it. Analysis and reporting are things you do, not what you are.
 
@@ -323,7 +339,21 @@ YOUR JOB:
 - build_campaign creates a full Search campaign from a spec: atomic, campaign always PAUSED, gates in code, result verified by re-read. You CAN build from this chat. Lay the spec out, get the founder's explicit go, run validate_only first if anything is uncertain, then build and report the verified counts. He activates; you never do. Performance Max, Demand Gen and Shopping builds do not exist here; say so rather than improvising.
 - run_audit prepares the written audit document. Give the founder the download path on its own line at the end of your reply.`;
 
+// The reviewer deployment's analyst: unnamed, read-and-propose, no memory. This
+// is the prompt the Google reviewer already walked; keep it that way.
+const SYSTEM_REVIEW = `You are a senior paid search analyst at ${entityConfig.brandName || "the agency"}, working inside the agency Command Center. You help the team triage and understand their Google Ads accounts.
+
+RULES:
+- Use ONLY figures returned by the tools. Never invent or recompute a number, account, or campaign name. If you have not pulled the data, pull it before answering.
+- Channel attribution matters: only Search campaigns have keywords and search terms; Performance Max, Demand Gen and Shopping use assets, audiences and listing groups. Never mislabel.
+- You ANALYSE and PROPOSE. You never execute changes. To recommend a concrete change, file it with propose_optimization (include an action for an executable one), then tell the user it is queued for their approval on the Proposals page.
+- GROUND NEGATIVE KEYWORDS IN REAL DATA: before proposing any negative keyword, call get_search_terms and cite the actual wasted queries (meaningful cost, zero or very low conversions). Never invent a wasted query. If get_search_terms returns nothing, say so.
+- EXECUTABLE ACTIONS need a real campaign: for pause_campaign, set_campaign_budget or a campaign-level add_negative_keyword, FIRST call list_campaigns and put the EXACT campaign name in action.campaign. Never guess or leave it blank. For an account-wide exclusion use add_shared_negative with no campaign.
+- Change history only covers the last 30 days (a Google limit); do not ask for more.
+- British English. Never use em dashes or en dashes outside numeric ranges. Be concise and specific; lead with the answer.`;
+
 function buildSystem(memoryBlock: string): string {
+  if (entityConfig.reviewMode) return SYSTEM_REVIEW;
   return `${SYSTEM_BASE}
 
 === MEMORY (yours, written by you, persists across all sessions) ===
@@ -624,9 +654,13 @@ export async function runAgentChatStream(
 
   const client = new Anthropic({ apiKey });
   const ctx: ToolContext = { roster: await loadRoster(), actor };
+  const reviewMode = entityConfig.reviewMode;
+  const tools = toolsFor(reviewMode);
   // Memory is read fresh each turn, so a memory written a moment ago is already
   // in scope, and it is scoped to Oscar so another agent's notes never leak in.
-  const system = buildSystem(renderMemories(await loadMemories(AGENT), AGENT)) + focusNote(ctx.roster, focusClientId);
+  // Review mode has no memory at all, so skip the read entirely.
+  const memoryBlock = reviewMode ? "" : renderMemories(await loadMemories(AGENT), AGENT);
+  const system = buildSystem(memoryBlock) + focusNote(ctx.roster, focusClientId);
   const messages: Anthropic.MessageParam[] = history.map((m) => ({ role: m.role, content: m.content }));
 
   try {
@@ -636,7 +670,7 @@ export async function runAgentChatStream(
         max_tokens: 2000,
         thinking: { type: "adaptive" },
         system,
-        tools: ALL_TOOLS,
+        tools,
         messages,
       });
       // The no-em-dash house rule enforced deterministically on the stream: a

@@ -26,7 +26,7 @@ function clientIdFromPath(path: string): string | null {
   return m ? m[1] : null;
 }
 
-export function CommandChat() {
+export function CommandChat({ reviewMode = false }: { reviewMode?: boolean }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -215,9 +215,11 @@ export function CommandChat() {
         ) : messages.length === 0 ? (
           <div className="space-y-3">
             <p className="text-sm text-zinc-500">
-              {scope === "general"
-                ? "Ask Oscar about any account under the MCC. He reads live figures, files optimisation proposals, and on your explicit word can apply them or build a campaign, behind the same guardrails as the Proposals page."
-                : `Chatting about ${scopeLabel}. Ask anything, I'll pick up where we left off.`}
+              {scope !== "general"
+                ? `Chatting about ${scopeLabel}. Ask anything, I'll pick up where we left off.`
+                : reviewMode
+                  ? "Ask about the accounts. I read live figures and can file optimisation proposals for your approval. I never make changes myself."
+                  : "Ask Oscar about any account under the MCC. He reads live figures, files optimisation proposals, and on your explicit word can apply them or build a campaign, behind the same guardrails as the Proposals page."}
             </p>
             {scope === "general" && (
               <div className="flex flex-col gap-1.5">
