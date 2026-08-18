@@ -277,7 +277,12 @@ function ClientHome({
 }) {
   const questionnaireDone = !!questionnaire.monthly_budget;
   const slackDone = !!slackEmail;
-  const adDone = adLinkStatus === "approved";
+  // A Meta-only client can never reach "approved" here, so the card needs the
+  // same explicit skip Microsoft Ads already has (a client was stranded one
+  // task short of the finish screen on the WMI side). Skipped is tracked
+  // separately from connected so the internal view can tell the two apart.
+  const adSkipped = checklist.googleads === true && adLinkStatus !== "approved";
+  const adDone = adLinkStatus === "approved" || adSkipped;
   const assetsDone = !!assetsLink || checklist.assets === true;
   const msAdsDone = !!msAdsAccount || checklist.msads === true;
 
@@ -300,7 +305,7 @@ function ClientHome({
       </h1>
       <p className="mt-1 text-sm text-zinc-500">
         A few things to set up so we can get your campaigns live. Do them in any
-        order — your progress is saved, so you can come back to this page anytime.
+        order. Your progress is saved, so you can come back to this page anytime.
       </p>
 
       <div className="mt-6 flex items-center gap-3">
@@ -323,9 +328,14 @@ function ClientHome({
         <TaskCard
           title="Connect your Google Ads account"
           done={adDone}
-          statusLabel={adLinkBadge(adLinkStatus)[1]}
+          statusLabel={adSkipped ? "not applicable" : adLinkBadge(adLinkStatus)[1]}
         >
-          <AdLinkContent id={id} status={adLinkStatus} customerId={customerId} />
+          <AdLinkContent
+            id={id}
+            status={adLinkStatus}
+            customerId={customerId}
+            skipped={adSkipped}
+          />
         </TaskCard>
 
         {accessTasks.map((k) => (
@@ -572,17 +582,38 @@ function AdLinkContent({
   id,
   status,
   customerId,
+  skipped,
 }: {
   id: string;
   status: string;
   customerId: string | null;
+  skipped: boolean;
 }) {
+  if (skipped) {
+    return (
+      <>
+        <p className="text-sm text-zinc-500">
+          Noted, you are not running Google Ads at the moment. Nothing else is
+          needed here. Whenever you want to add it, pick this back up and we
+          will take care of the linking.
+        </p>
+        <form action={toggleChecklistTask.bind(null, id, "googleads")} className="mt-4">
+          <button
+            type="submit"
+            className="text-sm text-zinc-500 underline hover:text-zinc-800"
+          >
+            Actually, I do want to connect Google Ads
+          </button>
+        </form>
+      </>
+    );
+  }
   if (status === "not_started") {
     return (
       <>
         <p className="text-sm text-zinc-500">
           Tell us your Google Ads customer ID and we&rsquo;ll send a management
-          request for your approval — we never need your password.
+          request for your approval. We never need your password.
         </p>
         <form
           action={submitGoogleAdsCustomerId.bind(null, id)}
@@ -600,16 +631,24 @@ function AdLinkContent({
           <SubmitButton>Submit</SubmitButton>
         </form>
         <p className="mt-3 text-xs text-zinc-400">
-          Where to find it: sign in at ads.google.com — your customer ID is the
+          Where to find it: sign in at ads.google.com. Your customer ID is the
           10-digit number in the top-right corner, like 123-456-7890.
         </p>
+        <form action={toggleChecklistTask.bind(null, id, "googleads")} className="mt-3">
+          <button
+            type="submit"
+            className="text-xs text-zinc-400 underline hover:text-zinc-700"
+          >
+            I&rsquo;m not running Google Ads right now
+          </button>
+        </form>
       </>
     );
   }
   if (status === "requested") {
     return (
       <p className="text-sm text-zinc-500">
-        Thanks — we have your ID
+        Thanks, we have your ID
         {customerId ? ` (${formatCustomerId(customerId)})` : ""}. Our team is
         reviewing it and will send the linking request shortly.
       </p>
@@ -619,7 +658,7 @@ function AdLinkContent({
     return (
       <>
         <p className="text-sm text-zinc-500">
-          One last step — we&rsquo;ve sent the management request to{" "}
+          One last step, we&rsquo;ve sent the management request to{" "}
           {customerId ? formatCustomerId(customerId) : "your account"}. Approve
           it in Google Ads and you&rsquo;re done.
         </p>
@@ -641,7 +680,7 @@ function AdLinkContent({
   if (status === "approved") {
     return (
       <p className="text-sm text-zinc-500">
-        Connected ✓ — our team manages{" "}
+        Connected ✓. Our team manages{" "}
         {customerId ? formatCustomerId(customerId) : "your account"} from here.
       </p>
     );

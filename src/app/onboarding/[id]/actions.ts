@@ -374,7 +374,12 @@ export async function toggleChecklistTask(
   clientId: string,
   key: string,
 ): Promise<void> {
-  if (!["ga4", "gtm", "gsc", "gmc", "meta", "assets", "msads"].includes(key)) return;
+  // "googleads" is the explicit not-applicable flag for the Google Ads card,
+  // for clients running Meta only. Without it that card had no way to reach
+  // done except an actual account link, which stranded them one task short of
+  // the finish screen.
+  if (!["ga4", "gtm", "gsc", "gmc", "meta", "assets", "msads", "googleads"].includes(key))
+    return;
   const supabase = createSupabaseAdminClient();
   const { data: state } = await supabase
     .from("onboarding_state")
