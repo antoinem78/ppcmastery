@@ -5,6 +5,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Paragraph, Table, TextRun } from "docx";
 import { getMetaAuditData, normalizeActId } from "@/lib/integrations/meta";
+import { getDeepAuditData, isErr } from "@/lib/integrations/meta/audit-deep";
+import { detectFindings, detectStrengths, totalAtStake, type Finding } from "@/lib/audit/meta-findings";
 import { entityConfig } from "@/lib/config";
 import { coverPage, h1, h2, para, bullets, exhibit, buildDocx, type ExhibitColumn } from "@/lib/audit/docx";
 
@@ -12,33 +14,50 @@ const MODEL = "claude-fable-5";
 const FALLBACK_MODEL = "claude-opus-4-8";
 const DOC_TITLE = "Meta Ads Account Audit";
 
-const NARRATIVE_SYSTEM = `You are a senior Meta Ads media buyer writing a full account audit for the account owner. You are given the account's real data (read live from the account) as JSON.
+// The findings are computed in code before the model is called (see
+// meta-findings.ts). The model's job is to write them up, in order, without
+// discovering anything of its own. That is the whole difference between this
+// and a generic "here is some JSON, find the problems" audit.
+const NARRATIVE_SYSTEM = `You are a senior Meta Ads media buyer writing a full account audit for the account owner, in the owner's own voice as the person who did the work.
 
-RULES:
-- Every figure, name, date and percentage must come from the DATA. Never invent, estimate or extrapolate a number. If a section of the data carries an "error" field, say that part could not be read and move on.
-- Use the account's own currency for money figures.
-- Do not mention APIs, tokens, JSON, tools, or how the data was obtained. This reads as a hands-on account review.
-- No em dashes anywhere; use commas, colons or plain hyphens.
-- Write in clear professional British English, direct and specific, no filler. Keep the whole document to roughly 1,200-1,800 words.
-- The daily trend may arrive in weekly buckets on longer windows; describe pacing at that granularity.
+You are given three things: the account's headline numbers, a list of VERIFIED FINDINGS already established from the account's data, and a list of things checked and found sound.
 
-OUTPUT: Markdown only, using exactly this structure:
+HARD RULES:
+- The VERIFIED FINDINGS are the audit. Write every one of them up, in the order given. Do not add findings of your own, do not merge them, do not drop any.
+- Never state a number that is not in the material you were given. Do not estimate, extrapolate, round differently, or infer a figure. If you want to say something you cannot source, leave it out.
+- Never claim something is missing or absent unless a finding says so explicitly. A section that could not be read is not evidence of absence.
+- Do not mention APIs, tokens, JSON, tools, agents, or how the data was obtained. This reads as a hands-on account review.
+- No em dashes anywhere. Use commas, colons, full stops or plain hyphens.
+- First person singular where you refer to yourself: I, me, my. Never "we", "us" or "our".
+- Write in clear professional British English. Direct and specific. No filler, no throat-clearing, no "in today's competitive landscape".
+
+STRUCTURE (markdown only, exactly these headings):
 ## Executive Summary
-(3-5 sentences: state of the account, headline numbers, the core problems)
+(4-6 sentences: the state of the account, the headline numbers, and the two or three things costing the most. Name the money at stake if it is given.)
 ## Account Snapshot
-(a bullet list: account name, status, currency, timezone, lifetime spend, structure counts)
-## Performance: Last Period vs Prior
-(a markdown table of the key metrics current vs previous with change, then 2-3 sentences of interpretation; call out pacing or delivery anomalies visible in the daily trend)
-## Structure and Settings Review
-(campaigns and ad sets: objectives, budgets, bid strategies, statuses, learning phase, targeting breadth; what is sound and what is not)
-## Tracking and Signals
-(pixel presence and last fire, conversion signal quality, anything that undermines optimisation)
-## Key Findings
-(numbered list, most important first; each finding one bold title sentence then evidence with figures)
+(bullet list: name, currency, lifetime spend, structure counts, review window)
+## Performance
+(a markdown table of the headline metrics, then 3-4 sentences of interpretation including the trend across months if given)
+## What Is Already Right
+(bullet list from the "checked and sound" material. This section matters: an audit that only lists faults is not a review, it is a pitch.)
+## Findings
+(one ### sub-heading per verified finding, in the order given, using the finding's title. Under each: the headline sentence, then the evidence as a bullet list, then a short paragraph on why it matters commercially. Use the finding's own figures verbatim.)
 ## Recommendations
-(numbered, prioritised, each actionable and tied to a finding)
-## First 30 Days
-(a short week-by-week action plan)`;
+(numbered, prioritised, one per finding, each tied to its finding by name and each stating what changes and what it is expected to do)
+## The First 30 Days
+(week by week, sequenced so that each step depends on the one before it. Say plainly which step unlocks the others.)
+## What I Need From You
+(short bullet list: access, assets or decisions required, only where a finding implies one)`;
+
+function findingsBrief(findings: Finding[], currency: string): string {
+  return findings.map((f, i) => [
+    `FINDING ${i + 1} [${f.severity}] ${f.title}`,
+    `  headline: ${f.headline}`,
+    ...f.evidence.map((e) => `  evidence: ${e}`),
+    f.moneyAtStake ? `  money at stake: ${Math.round(f.moneyAtStake).toLocaleString("en-GB")} ${currency} per 30 days` : "  money at stake: not directly quantifiable",
+    `  recommendation: ${f.recommendation}`,
+  ].join("\n")).join("\n\n");
+}
 
 /** Minimal markdown to docx using the house look: headings, bullets, numbered
  *  items and pipe tables. Deliberately small and predictable, since the
@@ -107,12 +126,26 @@ export interface MetaAuditResult {
 
 export async function generateMetaAudit(accountRef: string, days = 30): Promise<MetaAuditResult> {
   const { digits } = normalizeActId(accountRef);
-  const data = await getMetaAuditData(digits, days);
+  // The shallow read carries the settings picture, the deep read carries the
+  // breakdowns and library the detectors need. The deep read is allowed to
+  // fail without taking the audit down with it.
+  const [data, deep] = await Promise.all([
+    getMetaAuditData(digits, days),
+    getDeepAuditData(digits, days).catch((e: unknown) => {
+      console.error(`[meta-audit] ${digits} deep read failed:`, e);
+      return null;
+    }),
+  ]);
   const accountObj = data.account as Record<string, unknown>;
   if (accountObj.error) {
     throw new Error(`Could not read account ${digits}: ${String(accountObj.error)}`);
   }
   const accountName = typeof accountObj.name === "string" && accountObj.name ? accountObj.name : `Account ${digits}`;
+
+  const findings = deep ? detectFindings(deep) : [];
+  const strengths = deep ? detectStrengths(deep) : [];
+  const atStake = totalAtStake(findings);
+  console.log(`[meta-audit] ${digits} findings=${findings.length} (${findings.map((f) => f.id).join(",")}) atStake=${Math.round(atStake)}`);
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured, so the audit narrative cannot be written.");
@@ -127,7 +160,21 @@ export async function generateMetaAudit(accountRef: string, days = 30): Promise<
     betas: ["server-side-fallback-2026-06-01"],
     fallbacks: [{ model: FALLBACK_MODEL }],
     system: NARRATIVE_SYSTEM,
-    messages: [{ role: "user", content: `DATA:\n${JSON.stringify(data)}` }],
+    messages: [{
+      role: "user", content: [
+        findings.length
+          ? `VERIFIED FINDINGS (${findings.length}). These are established from the account's data. Write up every one, in this order.\n\n${findingsBrief(findings, deep?.currency ?? "")}`
+          : "VERIFIED FINDINGS: none cleared the detection thresholds. Say so plainly in the Findings section rather than inventing problems, and keep the audit to the performance read.",
+        atStake > 0
+          ? `\nTOTAL MEASURED WASTE: roughly ${Math.round(atStake).toLocaleString("en-GB")} ${deep?.currency ?? ""} per 30 days across the findings that could be priced. You may quote this figure.`
+          : "",
+        strengths.length ? `\nCHECKED AND SOUND (use for the "What Is Already Right" section):\n${strengths.map((s) => `- ${s}`).join("\n")}` : "",
+        `\nACCOUNT DATA (for the snapshot and performance sections only, do not mine it for new findings):\n${JSON.stringify(data)}`,
+        deep && !isErr(deep.monthly) && deep.monthly.length
+          ? `\nMONTHLY TREND:\n${deep.monthly.map((m) => `${m.month}: spend ${Math.round(m.spend)}, purchases ${m.purchases}, revenue ${Math.round(m.revenue)}, ROAS ${m.roas.toFixed(2)}, link CTR ${m.linkCtr.toFixed(2)}%`).join("\n")}`
+          : "",
+      ].filter(Boolean).join("\n"),
+    }],
   });
   const msg = await stream.finalMessage();
   if (msg.stop_reason === "refusal") {

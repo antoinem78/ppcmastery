@@ -55,6 +55,28 @@ function rows(r: { data?: unknown }): Record<string, unknown>[] {
   return Array.isArray(d) ? (d as Record<string, unknown>[]) : [];
 }
 
+// Shared with audit-deep.ts, which needs the same read-only Graph access.
+export { graphGet as metaGraphGet, rows as metaRows };
+
+/** Follow `paging.next` until exhausted or `cap` rows collected. Read-only. */
+export async function metaGraphAll(
+  path: string,
+  params: Record<string, string> = {},
+  cap = 500,
+): Promise<{ rows: Record<string, unknown>[]; error?: string }> {
+  const out: Record<string, unknown>[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const r = await graphGet(path, { ...params, limit: params.limit ?? "100", ...(after ? { after } : {}) });
+    if (r.error) return { rows: out, error: r.error };
+    out.push(...rows(r));
+    const paging = (r.data as { paging?: { next?: string; cursors?: { after?: string } } } | undefined)?.paging;
+    after = paging?.next ? paging.cursors?.after : undefined;
+    if (!after || out.length >= cap) break;
+  }
+  return { rows: out.slice(0, cap) };
+}
+
 export interface MetaAccount {
   accountId: string;
   name: string;
