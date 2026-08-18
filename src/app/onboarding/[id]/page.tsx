@@ -1,7 +1,7 @@
 // Public, link-driven client journey.
 //   Pre-payment: a linear, gated wizard (details -> contract -> payment).
 //   Post-payment: a persistent HOME / checklist the client returns to over
-//   days (questionnaire, Slack, Google Ads, + access grants in 5.2) — any
+//   days (questionnaire, Slack, Google Ads, + access grants in 5.2), any
 //   order, with a % completion bar.
 import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
@@ -79,7 +79,7 @@ export default async function OnboardingPage({
     .eq("client_id", id)
     .single();
 
-  // Reporting-only clients (existing accounts moved under our MCC): no funnel —
+  // Reporting-only clients (existing accounts moved under our MCC): no funnel, so
   // their link IS their performance dashboard.
   if (client.source === "reporting_only") {
     let dashboard: DashboardPayload | null = null;
@@ -117,7 +117,7 @@ export default async function OnboardingPage({
   let paymentDone = state?.payment_status === "paid";
 
   // Returning from Stripe Checkout: verify with Stripe (never trust the URL)
-  // and finalize if paid — idempotent alongside the webhook.
+  // and finalize if paid. Idempotent alongside the webhook.
   if (!paymentDone && sessionId) {
     try {
       if (await finalizeFromCheckoutSession(id, sessionId)) paymentDone = true;
@@ -359,7 +359,7 @@ function ClientHome({
 
       {doneCount === total && (
         <p className="mt-8 text-center text-sm text-emerald-600">
-          All done — our team takes it from here. Thanks, {companyName}!
+          All done, our team takes it from here. Thanks, {companyName}!
         </p>
       )}
 
@@ -508,7 +508,7 @@ function AssetsContent({
   );
 }
 
-// Native <details> disclosure card — no client JS, progressive by default.
+// Native <details> disclosure card, no client JS, progressive by default.
 function TaskCard({
   title,
   done,
@@ -559,7 +559,7 @@ function SlackFields({
   return (
     <>
       <p className="text-sm text-zinc-500">
-        All communication runs through your dedicated Slack channel — fast,
+        All communication runs through your dedicated Slack channel: fast,
         async, in writing. Which email should we invite? (Joining is free.)
       </p>
       <form action={submitSlackEmail.bind(null, id)} className="mt-4 space-y-4">
@@ -762,7 +762,7 @@ function DetailsStep({
     <>
       <h1 className="text-xl font-semibold text-zinc-900">Confirm your details</h1>
       <p className="mt-1 text-sm text-zinc-500">
-        These go into your agreement — please check they&rsquo;re exactly right.
+        These go into your agreement, please check they&rsquo;re exactly right.
       </p>
       <form action={confirmDetails.bind(null, id)} className="mt-6 space-y-5">
         <Field label="Company legal name" required>
@@ -774,7 +774,7 @@ function DetailsStep({
         <Field label="Email" required>
           <input name="contact_email" type="email" required defaultValue={client.contact_email} className={inputClass} />
         </Field>
-        <SubmitButton>Looks right — continue</SubmitButton>
+        <SubmitButton>Looks right, continue</SubmitButton>
       </form>
     </>
   );
@@ -809,7 +809,7 @@ function ContractStep({
           title="Service agreement"
         />
         <form action={confirmContractSigned.bind(null, id)} className="mt-4">
-          <SubmitButton>I&rsquo;ve signed — continue</SubmitButton>
+          <SubmitButton>I&rsquo;ve signed, continue</SubmitButton>
         </form>
       </>
     );
@@ -818,14 +818,14 @@ function ContractStep({
     <>
       <h1 className="text-xl font-semibold text-zinc-900">Your agreement</h1>
       <p className="mt-1 text-sm text-zinc-500">
-        Here&rsquo;s the plan we agreed — generate your agreement to sign online.
+        Here&rsquo;s the plan we agreed. Generate your agreement to sign online.
       </p>
       <QuoteSummary planName={planName} price={price} platforms={platforms} />
       <form action={generateContract.bind(null, id)} className="mt-6">
         <SubmitButton>Generate &amp; sign your agreement</SubmitButton>
       </form>
       <p className="mt-3 text-xs text-zinc-400">
-        Takes a few seconds — your agreement is prepared with your details and
+        Takes a few seconds. Your agreement is prepared with your details and
         opens here for signing.
       </p>
     </>
@@ -958,7 +958,7 @@ function QuestionnaireFields({
     <>
       {done && (
         <p className="mb-4 text-sm text-emerald-600">
-          ✓ Submitted — you can update your answers below anytime.
+          ✓ Submitted. You can update your answers below anytime.
         </p>
       )}
       <form action={submitQuestionnaire.bind(null, id)} className="space-y-5">
@@ -1007,7 +1007,7 @@ function QuestionnaireFields({
         <Field label="Do you want your ads running at particular times of day / days of the week?">
           <input name="ad_schedule" defaultValue={s("ad_schedule")} className={inputClass} />
         </Field>
-        <Field label="Is there a certain demographic to focus on? (age, behaviours, interests — be as specific as possible)">
+        <Field label="Is there a certain demographic to focus on? (age, behaviours, interests, be as specific as possible)">
           <textarea name="demographics" rows={2} defaultValue={s("demographics")} className={inputClass} />
         </Field>
         <Field label="Top 5 competitors">
