@@ -52,10 +52,12 @@ describe("markConversationCache", () => {
 });
 
 describe("systemBlocks", () => {
-  it("caches the brief and the memory block separately", () => {
+  it("caches the brief for 1h and the memory block at the 5m default", () => {
     const b = systemBlocks("BRIEF", "MEM");
     expect(b).toHaveLength(2);
-    expect(b[0].cache_control).toEqual({ type: "ephemeral" });
+    // Constant brief: long TTL survives the founder's between-message gaps.
+    expect(b[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    // Memory changes on every remember; a long TTL would buy invalidations.
     expect(b[1].cache_control).toEqual({ type: "ephemeral" });
     expect(b[1].text).toContain("MEM");
   });

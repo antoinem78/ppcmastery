@@ -64,7 +64,13 @@ export function systemBlocks(
   perRequest = "",
 ): Anthropic.TextBlockParam[] {
   const blocks: Anthropic.TextBlockParam[] = [
-    { type: "text", text: base, cache_control: EPHEMERAL },
+    // The brief never changes, and the founder chats intermittently: with the
+    // default 5-minute TTL the cache expired between messages and every message
+    // re-paid the write. 1h costs a 2x write premium (vs 1.25x) but the brief
+    // is written once an hour instead of once a message. The memory block stays
+    // at 5m: it changes whenever the agent writes a memory, so a long TTL would
+    // mostly buy invalidated entries. (Ported from app-wmi 4f1daec.)
+    { type: "text", text: base, cache_control: { type: "ephemeral", ttl: "1h" } },
   ];
   if (memoryBlock !== null) {
     blocks.push({
