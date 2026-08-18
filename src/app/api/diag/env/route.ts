@@ -73,6 +73,12 @@ const GROUPS: Record<string, string[]> = {
   ],
   email: ["RESEND_API_KEY", "EMAIL_FROM", "CONTRACT_COPY_TO"],
   meta: ["META_ADS_TOKEN", "META_ACCESS_TOKEN"],
+  // Cross-deployment shared agent memory (the WMI "one mind, many offices"
+  // option). DELIBERATELY UNSET HERE: PPC Mastery and AdEnergy keep their own
+  // agent memory (founder ruling 2026-08-06). If either of these ever reads
+  // true on this codebase's deployments, that is a boundary finding, not a
+  // feature — see derived.memory_store.
+  memory: ["MEMORY_SUPABASE_URL", "MEMORY_SUPABASE_SECRET_KEY"],
   supabase: ["SUPABASE_URL", "SUPABASE_SECRET_KEY"],
   auth0: ["AUTH0_DOMAIN", "AUTH0_CLIENT_ID", "AUTH0_CLIENT_SECRET", "AUTH0_SECRET", "APP_BASE_URL"],
   anthropic: ["ANTHROPIC_API_KEY"],
@@ -121,6 +127,15 @@ export async function GET() {
     // the sha against the commit you expected to be live.
     commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
     vercel_env: process.env.VERCEL_ENV ?? "local",
+    // Entity-boundary evidence (parity-sync §3): which database this instance
+    // runs on, and where its agents' memory lives. The Supabase project ref is
+    // an identifier, not a credential — it grants no access and is visible in
+    // every dashboard URL — and it is the only way to PROVE two portals are on
+    // different databases rather than asserting it.
+    db_ref: (process.env.SUPABASE_URL ?? "").match(/https:\/\/([a-z0-9]+)\./)?.[1] ?? "",
+    memory_store: process.env.MEMORY_SUPABASE_URL?.trim()
+      ? "EXTERNAL (cross-deployment pool — should not happen on this codebase)"
+      : "own-database",
     // Live key + test webhook (or vice versa) = client pays, nothing activates.
     stripe_mode: stripeKey.startsWith("sk_live_")
       ? "live"
