@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- Platform selection at client creation (Google Ads / Microsoft Ads / Meta
 -- Ads, any combination) — drives the plan wording on quotes and contracts.
 -- Existing clients default to the paid-search pair.

@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- 0020_agent_memory.sql
 -- Cross-session memory for the named agents (oscar = Google Ads, bernard =
 -- Meta). Ported from the app-wmi sibling (its 0022 — the numbering forked at

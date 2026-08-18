@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- Phase 2: store the Stripe identifiers on the client record so we can manage
 -- the subscription later (cancellation with 31-day notice, payment failures).
 -- Run in the Supabase SQL Editor.

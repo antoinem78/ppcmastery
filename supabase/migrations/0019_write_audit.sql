@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- 0019: write_audit — the cross-cutting security audit for EVERY Google Ads write
 -- attempt (P5-Lite apply/rollback AND Campaign Builder publish), including
 -- boundary rejections. Not client-scoped (publish can target a raw customer id

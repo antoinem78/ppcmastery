@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- Flow rework (decided June 11 2026): prospects arrive having verbally agreed
 -- a quote, so the wizard becomes: confirm details -> contract -> payment ->
 -- Slack invite -> onboarding questionnaire -> complete. The questionnaire moves

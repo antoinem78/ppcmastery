@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- Phase 6.1: cache the whole Google Ads dashboard payload per client+window so
 -- client refreshes don't eat the shared 15k/day API quota (Phase 4 linking and
 -- reporting draw on the same token). TTL is enforced in code (~30 min).

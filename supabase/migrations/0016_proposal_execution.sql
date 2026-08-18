@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- 0016: P5-Lite execution/audit columns on optimization_proposals. Records who
 -- applied/rolled back a proposal and an immutable before/after of the single
 -- operation. Run in BOTH Supabase projects. No UTF-8 BOM.

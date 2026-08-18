@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- 0015: optimization_proposals — the structured approval queue. The AI analyst
 -- files proposals; a human approves or dismisses them. Run in BOTH Supabase
 -- projects (PPC Mastery + the Command Center deployment). RLS stays off (the

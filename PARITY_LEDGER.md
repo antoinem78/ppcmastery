@@ -24,6 +24,12 @@ Two repos, by ruling, not accident:
 | app.wmiltd.com | app-wmi | reference `8811b20` | their 0024 (upsells) | Oscar + Bernard + dispatch, Sonnet 5 | pandadoc/engine | reference only |
 | FZCO portal | app-wmi | not tracked here | — | — | engine click-wrap | reference only |
 
+Class-A parity ports landed 2026-08-18 (both portals, same deploy): 1h agent
+cache TTL, Meta-only onboarding skip, Oscar chat attachments, Meta audit
+findings engine, migration runner with target guard (scripts/migrate.mjs;
+every .sql now carries a TARGET header). Outstanding class-B founder rulings:
+upsells, Sonnet 5 for the agents, Meta weekly cron.
+
 Numbering fork, so nobody applies the wrong file: the two repos' migrations
 diverged at 0019. Theirs 0019=share_dashboard, 0020=write_audit,
 0021=platform_client, 0022=agent_memory, 0023=client_currency, 0024=upsells.

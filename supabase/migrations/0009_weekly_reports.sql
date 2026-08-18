@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- Phase 6.3: store each weekly report we generate + post to Slack, for history.
 -- Run in the Supabase SQL Editor. (The cron still posts to Slack without this;
 -- the store is best-effort.)

@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- 0021_share_dashboard.sql
 -- Hardened client-share links (ported from the app-wmi sibling's 0019 — the
 -- numbering forked at 0019). Each client gets an unguessable share token,

@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- Seed the named agents' first memories (run ONCE per deployment, after
 -- migration 0020_agent_memory.sql).
 --

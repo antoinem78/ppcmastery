@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- 0018: persistent AI-analyst conversations, keyed by scope (a client id, or
 -- 'general'). Lets the chat carry a per-account memory across pages/sessions.
 -- Run in BOTH Supabase projects. No UTF-8 BOM.

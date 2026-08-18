@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- Phase 4: Google Ads account linking (no client OAuth — client submits their
 -- customer ID, admin approves, backend sends the MCC link invitation, client
 -- accepts inside Google Ads).

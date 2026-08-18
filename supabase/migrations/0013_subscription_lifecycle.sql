@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- Subscription lifecycle: a dunning state for failed renewals, and the
 -- scheduled cancellation date (31-day notice). Run in BOTH Supabase projects.
 

@@ -1,3 +1,4 @@
+-- TARGET: PORTAL
 -- Reporting-only clients: existing clients whose account already sits under our
 -- MCC. They skip the onboarding funnel (no contract/payment) — we just want the
 -- dashboard + weekly reports. Distinguish them so the admin view adapts and the
