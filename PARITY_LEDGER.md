@@ -16,10 +16,10 @@ Two repos, by ruling, not accident:
   Improvements cross by HAND-PORT, never merge: WMI must not receive the
   Campaign Builder, this repo must not receive WMI's commerce machinery.
 
-| Deployment | Repo | Serving SHA | Migration head | Agents | Contract provider | Last verified |
-|---|---|---|---|---|---|---|
-| app.ppcmastery.ai | ppcmastery | `06df5e7` + | 0021 (+ agent memory seeded) | Oscar + Bernard, Opus 4.8, memory own-DB | documenso | 2026-08-18 |
-| app.adenergy.online | ppcmastery | pending re-read | 0021 (seed NOT run, deliberate) | Oscar + Bernard, Opus 4.8, memory own-DB | proposal-engine | 2026-08-18 (env), SHA pending |
+| Deployment | Repo | Serving SHA | DB ref | Migration head | Agents | Contract provider | Last verified |
+|---|---|---|---|---|---|---|---|
+| app.ppcmastery.ai | ppcmastery | `723e976` | `rnhyegybpwyoxubmgvds` | 0021 (+ agent memory seeded) | Oscar + Bernard, Opus 4.8, memory own-DB | documenso, ready | 2026-08-18, live diag |
+| app.adenergy.online | ppcmastery | `723e976` | `hwpmxavoxhimhvqiskfq` | 0021 (seed NOT run, deliberate) | Oscar + Bernard, Opus 4.8, memory own-DB | ⚠ documenso, NOT ready (flip to proposal-engine never took; funnel throws) | 2026-08-18, live diag |
 | demo.ppcmastery.ai | ppcmastery | follows main | 0015-0019 era, review seed | analyst only (review mode: no persona, no memory, no exec) | n/a (review) | 2026-08-06 |
 | app.wmiltd.com | app-wmi | reference `8811b20` | their 0024 (upsells) | Oscar + Bernard + dispatch, Sonnet 5 | pandadoc/engine | reference only |
 | FZCO portal | app-wmi | not tracked here | — | — | engine click-wrap | reference only |

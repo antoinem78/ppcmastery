@@ -24,9 +24,11 @@ evidence one diag read away.**
   BERNARD_WEBHOOK_KEY, or relay variables in this codebase at all (see env
   inventory below), so there is nothing to point at WMI's estate even by
   misconfiguration.
-- **Runtime proof:** /api/diag/env now reports `memory_store` (must read
-  "own-database" on both) and `db_ref` (must DIFFER between the two portals).
-  Read both after this deploys and paste into the ledger.
+- **Runtime proof, read live 2026-08-18 (both serving `723e976`):**
+  ppcmastery `db_ref=rnhyegybpwyoxubmgvds`, adenergy `db_ref=hwpmxavoxhimhvqiskfq`
+  — different databases — and `memory_store="own-database"` on both, with the
+  `MEMORY_SUPABASE_*` pair absent from both environments. **Verdict confirmed
+  at runtime, not just in code.**
 
 One caveat named honestly: the same Meta system-user token is on both portals,
 so Bernard reads the same three Meta ad accounts from either. That is an
