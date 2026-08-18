@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import { ACCEPT_ATTR, MAX_FILES } from "@/lib/attachment-limits";
 
 // Floating chat with Oscar, the Google Ads analyst, mounted in the admin layout
 // so it stays open across pages (the layout persists across navigations).
@@ -39,6 +40,10 @@ export function CommandChat({ reviewMode = false }: { reviewMode?: boolean }) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  // Files staged for the next send (PDF, Word, Markdown, text; same ceilings
+  // as Bernard via the shared attachment-limits module).
+  const [pending, setPending] = useState<File[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Tracks the CURRENT scope so an in-flight reply for account A never paints
   // into (or persists under) account B after a mid-stream switch.
@@ -107,30 +112,67 @@ export function CommandChat({ reviewMode = false }: { reviewMode?: boolean }) {
     } catch { /* best-effort */ }
   }
 
+  // Copy eagerly: a FileList is live-bound to its input element, so resetting
+  // the input's value (done straight after, to allow re-picking the same file)
+  // empties it before a deferred setState updater would read it.
+  function addFiles(list: FileList | null) {
+    const incoming = list ? Array.from(list) : [];
+    if (!incoming.length) return;
+    setPending((p) => [...p, ...incoming].slice(0, MAX_FILES));
+  }
+
   async function send(text: string) {
     const q = text.trim();
-    if (!q || busy) return;
+    const files = pending;
+    // A file on its own is a valid turn; give Oscar a default instruction.
+    if ((!q && files.length === 0) || busy) return;
+    const shown =
+      q ||
+      (files.length === 1
+        ? "Read this and tell me what you make of it."
+        : "Read these and tell me what you make of them.");
+    // On screen the turn shows the filenames; the API gets the plain text (the
+    // files ride as multipart parts and become document blocks server-side).
+    const label = files.length
+      ? `${shown}\n\n${files.map((f) => `[attached ${f.name}]`).join("\n")}`
+      : shown;
     setInput("");
+    setPending([]);
     setStatus(null);
     setArtifacts([]);
     setBusy(true);
     const sendScope = scope; // freeze: replies belong to the scope they were asked in
     streamingScopeRef.current = sendScope;
-    const history: Msg[] = [...messages, { role: "user", content: q }];
-    setMessages([...history, { role: "assistant", content: "" }]);
+    const history: Msg[] = [...messages, { role: "user", content: shown }];
+    const display: Msg[] = [...messages, { role: "user", content: label }];
+    // What the user turn persists as. The route upgrades it via user_stored
+    // (attachment transcript notes + text) so extracted text survives into
+    // later sessions; the live view keeps the compact filename markers.
+    let storedUser = label;
+    setMessages([...display, { role: "assistant", content: "" }]);
     scrollDown();
 
     let assistant = ""; // accumulates the final answer (reset drops tool preamble)
     const paint = () => {
-      if (scopeRef.current === sendScope) setMessages([...history, { role: "assistant", content: assistant }]);
+      if (scopeRef.current === sendScope) setMessages([...display, { role: "assistant", content: assistant }]);
     };
 
     try {
-      const res = await fetch("/api/agent/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, focusClientId: sendScope === "general" ? null : sendScope }),
-      });
+      const focusClientId = sendScope === "general" ? null : sendScope;
+      let res: Response;
+      if (files.length) {
+        const form = new FormData();
+        form.set("messages", JSON.stringify({ messages: history, focusClientId }));
+        if (focusClientId) form.set("focusClientId", focusClientId);
+        for (const f of files) form.append("files", f);
+        res = await fetch("/api/agent/chat", { method: "POST", body: form });
+      } else {
+        res = await fetch("/api/agent/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: history, focusClientId }),
+        });
+      }
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({}));
         throw new Error((data as { error?: string }).error || `Chat failed (${res.status}).`);
@@ -148,6 +190,7 @@ export function CommandChat({ reviewMode = false }: { reviewMode?: boolean }) {
           if (!line.trim()) continue;
           const e = JSON.parse(line) as { type: string; text?: string; label?: string };
           if (e.type === "status") setStatus(e.text ?? null);
+          else if (e.type === "user_stored" && e.text) storedUser = e.text;
           else if (e.type === "artifact" && e.text) {
             const href = e.text;
             const label = e.label ?? "Download";
@@ -165,12 +208,14 @@ export function CommandChat({ reviewMode = false }: { reviewMode?: boolean }) {
       setStatus(null);
       setBusy(false);
       streamingScopeRef.current = null;
-      const final: Msg[] = [...history, { role: "assistant", content: assistant }];
       if (scopeRef.current === sendScope) {
-        setMessages(final);
+        setMessages([...display, { role: "assistant", content: assistant }]);
         scrollDown();
       }
       // Always persist under the ORIGINATING scope, even if the user switched.
+      // The persisted user turn carries the attachment transcript notes
+      // (storedUser), so what a file said is still in the thread next session.
+      const final: Msg[] = [...messages, { role: "user", content: storedUser }, { role: "assistant", content: assistant }];
       if (assistant.trim()) void persist(sendScope, final);
     }
   }
@@ -252,7 +297,46 @@ export function CommandChat({ reviewMode = false }: { reviewMode?: boolean }) {
         {status && <div className="flex items-center gap-2 text-xs text-zinc-400"><span className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-200 border-t-blue-500" />{status}</div>}
       </div>
 
+      {pending.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 border-t border-zinc-100 px-3 pt-2">
+          {pending.map((f, i) => (
+            <span
+              key={`${f.name}-${i}`}
+              className="inline-flex items-center gap-1.5 rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700"
+            >
+              <span className="max-w-[14rem] truncate">{f.name}</span>
+              <span className="text-zinc-400">{(f.size / 1000).toFixed(0)}KB</span>
+              <button
+                type="button"
+                onClick={() => setPending((p) => p.filter((_, j) => j !== i))}
+                aria-label={`Remove ${f.name}`}
+                className="ml-0.5 text-zinc-400 hover:text-zinc-900"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="flex items-center gap-2 border-t border-zinc-200 p-3">
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          accept={ACCEPT_ATTR}
+          className="hidden"
+          onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+          title="Attach a PDF, Word document, Markdown or text file"
+          aria-label="Attach a file"
+          className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50 disabled:opacity-40"
+        >
+          📎
+        </button>
         <input
           className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-800 focus:border-blue-400 focus:outline-none"
           value={input}
@@ -260,7 +344,7 @@ export function CommandChat({ reviewMode = false }: { reviewMode?: boolean }) {
           placeholder={`Ask about ${scope === "general" ? "the accounts" : scopeLabel}…`}
           disabled={busy}
         />
-        <button type="submit" disabled={busy || !input.trim()} className="rounded-lg bg-[#0B1F3A] px-3 py-2 text-sm font-medium text-white disabled:opacity-40">Send</button>
+        <button type="submit" disabled={busy || (!input.trim() && pending.length === 0)} className="rounded-lg bg-[#0B1F3A] px-3 py-2 text-sm font-medium text-white disabled:opacity-40">Send</button>
       </form>
     </div>
   );

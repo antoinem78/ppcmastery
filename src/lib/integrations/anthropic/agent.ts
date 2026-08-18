@@ -35,6 +35,7 @@ import {
 } from "@/lib/agent-memory";
 import { makeEmDashScrubber } from "@/lib/emdash";
 import { markConversationCache, systemBlocks } from "./cache";
+import type { Attachment } from "@/lib/attachments";
 
 const AGENT = "oscar";
 const MODEL = "claude-opus-4-8";
@@ -57,6 +58,10 @@ export type AgentEvent =
   | { type: "delta"; text: string }
   | { type: "reset" }
   | { type: "artifact"; text: string; label?: string }
+  // The user turn as it should be PERSISTED (attachment transcript notes plus
+  // the typed text). Oscar's transcript persists client-side, so the client
+  // needs this back: it never sees the extracted text otherwise.
+  | { type: "user_stored"; text: string }
   | { type: "done" }
   | { type: "error"; text: string };
 
@@ -644,6 +649,7 @@ export async function runAgentChatStream(
   emit: (e: AgentEvent) => void,
   focusClientId?: string | null,
   actor = `agent:${AGENT}`,
+  attachments: Attachment[] = [],
 ): Promise<void> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -662,6 +668,32 @@ export async function runAgentChatStream(
   const memoryBlock = reviewMode ? "" : renderMemories(await loadMemories(AGENT), AGENT);
   const system = buildSystem(memoryBlock, focusNote(ctx.roster, focusClientId));
   const messages: Anthropic.MessageParam[] = history.map((m) => ({ role: m.role, content: m.content }));
+
+  // Files ride on the turn they were sent with, as document blocks ahead of the
+  // founder's text so Oscar reads them before the instruction about them.
+  // Document blocks need no beta header, so this stays on client.messages.
+  // Extracted text also lands in the stored transcript (the route emits
+  // user_stored), so it survives into later turns; a PDF does not, because we
+  // hold only the bytes for the length of this request. Re-attach if a PDF is
+  // needed again later.
+  if (attachments.length && messages.length) {
+    const last = messages[messages.length - 1];
+    const blocks: Anthropic.ContentBlockParam[] = attachments.map((a) =>
+      a.kind === "pdf"
+        ? {
+            type: "document",
+            title: a.name,
+            source: { type: "base64", media_type: "application/pdf", data: a.base64 },
+          }
+        : {
+            type: "document",
+            title: a.name,
+            source: { type: "text", media_type: "text/plain", data: a.text },
+          },
+    );
+    blocks.push({ type: "text", text: typeof last.content === "string" ? last.content : "" });
+    messages[messages.length - 1] = { role: "user", content: blocks };
+  }
 
   try {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
